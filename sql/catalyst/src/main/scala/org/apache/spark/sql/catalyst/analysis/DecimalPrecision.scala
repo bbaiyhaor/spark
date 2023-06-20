@@ -21,34 +21,36 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.Literal._
 import org.apache.spark.sql.types._
 
-
 // scalastyle:off
-/**
- * Calculates and propagates precision for fixed-precision decimals. Hive has a number of
- * rules for this based on the SQL standard and MS SQL:
- * https://cwiki.apache.org/confluence/download/attachments/27362075/Hive_Decimal_Precision_Scale_Support.pdf
- * https://msdn.microsoft.com/en-us/library/ms190476.aspx
- *
- * In particular, if we have expressions e1 and e2 with precision/scale p1/s2 and p2/s2
- * respectively, then the following operations have the following precision / scale:
- *
- *   Operation    Result Precision                        Result Scale
- *   ------------------------------------------------------------------------
- *   e1 union e2  max(s1, s2) + max(p1-s1, p2-s2)         max(s1, s2)
- *
- * To implement the rules for fixed-precision types, we introduce casts to turn them to unlimited
- * precision, do the math on unlimited-precision numbers, then introduce casts back to the
- * required fixed precision. This allows us to do all rounding and overflow handling in the
- * cast-to-fixed-precision operator.
- *
- * In addition, when mixing non-decimal types with decimals, we use the following rules:
- * - BYTE gets turned into DECIMAL(3, 0)
- * - SHORT gets turned into DECIMAL(5, 0)
- * - INT gets turned into DECIMAL(10, 0)
- * - LONG gets turned into DECIMAL(20, 0)
- * - FLOAT and DOUBLE cause fixed-length decimals to turn into DOUBLE
- * - Literals INT and LONG get turned into DECIMAL with the precision strictly needed by the value
- */
+/** Calculates and propagates precision for fixed-precision decimals. Hive has a
+  * number of rules for this based on the SQL standard and MS SQL:
+  * https://cwiki.apache.org/confluence/download/attachments/27362075/Hive_Decimal_Precision_Scale_Support.pdf
+  * https://msdn.microsoft.com/en-us/library/ms190476.aspx
+  *
+  * In particular, if we have expressions e1 and e2 with precision/scale p1/s2
+  * and p2/s2 respectively, then the following operations have the following
+  * precision / scale:
+  *
+  * Operation Result Precision Result Scale
+  * ------------------------------------------------------------------------ e1
+  * union e2 max(s1, s2) + max(p1-s1, p2-s2) max(s1, s2)
+  *
+  * To implement the rules for fixed-precision types, we introduce casts to turn
+  * them to unlimited precision, do the math on unlimited-precision numbers,
+  * then introduce casts back to the required fixed precision. This allows us to
+  * do all rounding and overflow handling in the cast-to-fixed-precision
+  * operator.
+  *
+  * In addition, when mixing non-decimal types with decimals, we use the
+  * following rules:
+  *   - BYTE gets turned into DECIMAL(3, 0)
+  *   - SHORT gets turned into DECIMAL(5, 0)
+  *   - INT gets turned into DECIMAL(10, 0)
+  *   - LONG gets turned into DECIMAL(20, 0)
+  *   - FLOAT and DOUBLE cause fixed-length decimals to turn into DOUBLE
+  *   - Literals INT and LONG get turned into DECIMAL with the precision
+  *     strictly needed by the value
+  */
 // scalastyle:on
 object DecimalPrecision extends TypeCoercionRule {
   import scala.math.max
@@ -77,33 +79,37 @@ object DecimalPrecision extends TypeCoercionRule {
     // Skip nodes whose children have not been resolved yet
     case e if !e.childrenResolved => e
 
-    case b @ BinaryComparison(e1 @ DecimalType.Expression(p1, s1),
-    e2 @ DecimalType.Expression(p2, s2)) if p1 != p2 || s1 != s2 =>
+    case b @ BinaryComparison(
+          e1 @ DecimalType.Expression(p1, s1),
+          e2 @ DecimalType.Expression(p2, s2)
+        ) if p1 != p2 || s1 != s2 =>
       val resultType = widerDecimalType(p1, s1, p2, s2)
       val newE1 = if (e1.dataType == resultType) e1 else Cast(e1, resultType)
       val newE2 = if (e2.dataType == resultType) e2 else Cast(e2, resultType)
       b.makeCopy(Array(newE1, newE2))
   }
 
-  /**
-   * Strength reduction for comparing integral expressions with decimal literals.
-   * 1. int_col > decimal_literal => int_col > floor(decimal_literal)
-   * 2. int_col >= decimal_literal => int_col >= ceil(decimal_literal)
-   * 3. int_col < decimal_literal => int_col < ceil(decimal_literal)
-   * 4. int_col <= decimal_literal => int_col <= floor(decimal_literal)
-   * 5. decimal_literal > int_col => ceil(decimal_literal) > int_col
-   * 6. decimal_literal >= int_col => floor(decimal_literal) >= int_col
-   * 7. decimal_literal < int_col => floor(decimal_literal) < int_col
-   * 8. decimal_literal <= int_col => ceil(decimal_literal) <= int_col
-   *
-   * Note that technically this is an "optimization" and should go into the optimizer. However,
-   * by the time the optimizer runs, these comparison expressions would be pretty hard to pattern
-   * match because there are multiple (at least 2) levels of casts involved.
-   *
-   * There are a lot more possible rules we can implement, but we don't do them
-   * because we are not sure how common they are.
-   */
-  private val integralAndDecimalLiteral: PartialFunction[Expression, Expression] = {
+  /** Strength reduction for comparing integral expressions with decimal
+    * literals.
+    *   1. int_col > decimal_literal => int_col > floor(decimal_literal) 2.
+    *      int_col >= decimal_literal => int_col >= ceil(decimal_literal) 3.
+    *      int_col < decimal_literal => int_col < ceil(decimal_literal) 4.
+    *      int_col <= decimal_literal => int_col <= floor(decimal_literal) 5.
+    *      decimal_literal > int_col => ceil(decimal_literal) > int_col 6.
+    *      decimal_literal >= int_col => floor(decimal_literal) >= int_col 7.
+    *      decimal_literal < int_col => floor(decimal_literal) < int_col 8.
+    *      decimal_literal <= int_col => ceil(decimal_literal) <= int_col
+    *
+    * Note that technically this is an "optimization" and should go into the
+    * optimizer. However, by the time the optimizer runs, these comparison
+    * expressions would be pretty hard to pattern match because there are
+    * multiple (at least 2) levels of casts involved.
+    *
+    * There are a lot more possible rules we can implement, but we don't do them
+    * because we are not sure how common they are.
+    */
+  private val integralAndDecimalLiteral
+      : PartialFunction[Expression, Expression] = {
 
     case GreaterThan(i @ IntegralType(), DecimalLiteral(value)) =>
       if (DecimalLiteral.smallerThanSmallestLong(value)) {
@@ -178,12 +184,12 @@ object DecimalPrecision extends TypeCoercionRule {
       }
   }
 
-  /**
-   * Type coercion for BinaryOperator in which one side is a non-decimal numeric, and the other
-   * side is a decimal.
-   */
-  private def nondecimalAndDecimal(literalPickMinimumPrecision: Boolean)
-    : PartialFunction[Expression, Expression] = {
+  /** Type coercion for BinaryOperator in which one side is a non-decimal
+    * numeric, and the other side is a decimal.
+    */
+  private def nondecimalAndDecimal(
+      literalPickMinimumPrecision: Boolean
+  ): PartialFunction[Expression, Expression] = {
     // Promote integers inside a binary expression with fixed-precision decimals to decimals,
     // and fixed-precision decimals in an expression with floats / doubles to doubles
     case b @ BinaryOperator(left, right) if left.dataType != right.dataType =>
@@ -198,13 +204,15 @@ object DecimalPrecision extends TypeCoercionRule {
         // potentially loosing 11 digits of the fractional part. Using only the precision needed
         // by the Literal, instead, the result would be DECIMAL(38 + 1 + 1, 18), which would
         // become DECIMAL(38, 16), safely having a much lower precision loss.
-        case (l: Literal, r) if r.dataType.isInstanceOf[DecimalType] &&
-            l.dataType.isInstanceOf[IntegralType] &&
-            literalPickMinimumPrecision =>
+        case (l: Literal, r)
+            if r.dataType.isInstanceOf[DecimalType] &&
+              l.dataType.isInstanceOf[IntegralType] &&
+              literalPickMinimumPrecision =>
           b.makeCopy(Array(Cast(l, DecimalType.fromLiteral(l)), r))
-        case (l, r: Literal) if l.dataType.isInstanceOf[DecimalType] &&
-            r.dataType.isInstanceOf[IntegralType] &&
-            literalPickMinimumPrecision =>
+        case (l, r: Literal)
+            if l.dataType.isInstanceOf[DecimalType] &&
+              r.dataType.isInstanceOf[IntegralType] &&
+              literalPickMinimumPrecision =>
           b.makeCopy(Array(l, Cast(r, DecimalType.fromLiteral(r))))
         // Promote integers inside a binary expression with fixed-precision decimals to decimals,
         // and fixed-precision decimals in an expression with floats / doubles to doubles

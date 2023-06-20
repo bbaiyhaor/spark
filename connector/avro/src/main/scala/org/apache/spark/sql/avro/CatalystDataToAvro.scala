@@ -24,12 +24,16 @@ import org.apache.avro.generic.GenericDatumWriter
 import org.apache.avro.io.{BinaryEncoder, EncoderFactory}
 
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{
+  CodegenContext,
+  ExprCode
+}
 import org.apache.spark.sql.types.{BinaryType, DataType}
 
 private[sql] case class CatalystDataToAvro(
     child: Expression,
-    jsonFormatSchema: Option[String]) extends UnaryExpression {
+    jsonFormatSchema: Option[String]
+) extends UnaryExpression {
 
   override def dataType: DataType = BinaryType
 
@@ -59,12 +63,16 @@ private[sql] case class CatalystDataToAvro(
 
   override def prettyName: String = "to_avro"
 
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+  override protected def doGenCode(
+      ctx: CodegenContext,
+      ev: ExprCode
+  ): ExprCode = {
     val expr = ctx.addReferenceObj("this", this)
-    defineCodeGen(ctx, ev, input =>
-      s"(byte[]) $expr.nullSafeEval($input)")
+    defineCodeGen(ctx, ev, input => s"(byte[]) $expr.nullSafeEval($input)")
   }
 
-  override protected def withNewChildInternal(newChild: Expression): CatalystDataToAvro =
+  override protected def withNewChildInternal(
+      newChild: Expression
+  ): CatalystDataToAvro =
     copy(child = newChild)
 }

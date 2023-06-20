@@ -20,30 +20,44 @@ package org.apache.spark.sql.avro
 import org.apache.avro.Schema
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
-import org.apache.spark.sql.execution.datasources.{OutputWriter, OutputWriterFactory}
+import org.apache.spark.sql.execution.datasources.{
+  OutputWriter,
+  OutputWriterFactory
+}
 import org.apache.spark.sql.types.StructType
 
-/**
- * A factory that produces [[AvroOutputWriter]].
- *
- * @param catalystSchema Catalyst schema of input data.
- * @param avroSchemaAsJsonString Avro schema of output result, in JSON string format.
- * @param positionalFieldMatching If true, match Avro schema against catalyst schema using field
- *                                ordering (i.e. position/index) instead of field name.
- */
+/** A factory that produces [[AvroOutputWriter]].
+  *
+  * @param catalystSchema
+  *   Catalyst schema of input data.
+  * @param avroSchemaAsJsonString
+  *   Avro schema of output result, in JSON string format.
+  * @param positionalFieldMatching
+  *   If true, match Avro schema against catalyst schema using field ordering
+  *   (i.e. position/index) instead of field name.
+  */
 private[sql] class AvroOutputWriterFactory(
     catalystSchema: StructType,
     avroSchemaAsJsonString: String,
-    positionalFieldMatching: Boolean) extends OutputWriterFactory {
+    positionalFieldMatching: Boolean
+) extends OutputWriterFactory {
 
-  private lazy val avroSchema = new Schema.Parser().parse(avroSchemaAsJsonString)
+  private lazy val avroSchema =
+    new Schema.Parser().parse(avroSchemaAsJsonString)
 
   override def getFileExtension(context: TaskAttemptContext): String = ".avro"
 
   override def newInstance(
       path: String,
       dataSchema: StructType,
-      context: TaskAttemptContext): OutputWriter = {
-    new AvroOutputWriter(path, context, catalystSchema, positionalFieldMatching, avroSchema)
+      context: TaskAttemptContext
+  ): OutputWriter = {
+    new AvroOutputWriter(
+      path,
+      context,
+      catalystSchema,
+      positionalFieldMatching,
+      avroSchema
+    )
   }
 }

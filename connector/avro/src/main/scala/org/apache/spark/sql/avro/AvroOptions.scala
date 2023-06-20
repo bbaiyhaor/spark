@@ -26,16 +26,20 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{DataSourceOptions, FileSourceOptions}
-import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, FailFastMode, ParseMode}
+import org.apache.spark.sql.catalyst.util.{
+  CaseInsensitiveMap,
+  FailFastMode,
+  ParseMode
+}
 import org.apache.spark.sql.internal.SQLConf
 
-/**
- * Options for Avro Reader and Writer stored in case insensitive manner.
- */
+/** Options for Avro Reader and Writer stored in case insensitive manner.
+  */
 private[sql] class AvroOptions(
     @transient val parameters: CaseInsensitiveMap[String],
-    @transient val conf: Configuration)
-  extends FileSourceOptions(parameters) with Logging {
+    @transient val conf: Configuration
+) extends FileSourceOptions(parameters)
+    with Logging {
 
   import AvroOptions._
 
@@ -43,67 +47,76 @@ private[sql] class AvroOptions(
     this(CaseInsensitiveMap(parameters), conf)
   }
 
-  /**
-   * Optional schema provided by a user in schema file or in JSON format.
-   *
-   * When reading Avro, this option can be set to an evolved schema, which is compatible but
-   * different with the actual Avro schema. The deserialization schema will be consistent with
-   * the evolved schema. For example, if we set an evolved schema containing one additional
-   * column with a default value, the reading result in Spark will contain the new column too.
-   *
-   * When writing Avro, this option can be set if the expected output Avro schema doesn't match the
-   * schema converted by Spark. For example, the expected schema of one column is of "enum" type,
-   * instead of "string" type in the default converted schema.
-   */
+  /** Optional schema provided by a user in schema file or in JSON format.
+    *
+    * When reading Avro, this option can be set to an evolved schema, which is
+    * compatible but different with the actual Avro schema. The deserialization
+    * schema will be consistent with the evolved schema. For example, if we set
+    * an evolved schema containing one additional column with a default value,
+    * the reading result in Spark will contain the new column too.
+    *
+    * When writing Avro, this option can be set if the expected output Avro
+    * schema doesn't match the schema converted by Spark. For example, the
+    * expected schema of one column is of "enum" type, instead of "string" type
+    * in the default converted schema.
+    */
   val schema: Option[Schema] = {
-    parameters.get(AVRO_SCHEMA).map(new Schema.Parser().setValidateDefaults(false).parse).orElse({
-      val avroUrlSchema = parameters.get(AVRO_SCHEMA_URL).map(url => {
-        log.debug("loading avro schema from url: " + url)
-        val fs = FileSystem.get(new URI(url), conf)
-        val in = fs.open(new Path(url))
-        try {
-          new Schema.Parser().setValidateDefaults(false).parse(in)
-        } finally {
-          in.close()
-        }
+    parameters
+      .get(AVRO_SCHEMA)
+      .map(new Schema.Parser().setValidateDefaults(false).parse)
+      .orElse({
+        val avroUrlSchema = parameters
+          .get(AVRO_SCHEMA_URL)
+          .map(url => {
+            log.debug("loading avro schema from url: " + url)
+            val fs = FileSystem.get(new URI(url), conf)
+            val in = fs.open(new Path(url))
+            try {
+              new Schema.Parser().setValidateDefaults(false).parse(in)
+            } finally {
+              in.close()
+            }
+          })
+        avroUrlSchema
       })
-      avroUrlSchema
-    })
   }
 
-  /**
-   * Iff true, perform Catalyst-to-Avro schema matching based on field position instead of field
-   * name. This allows for a structurally equivalent Catalyst schema to be used with an Avro schema
-   * whose field names do not match. Defaults to false.
-   */
+  /** Iff true, perform Catalyst-to-Avro schema matching based on field position
+    * instead of field name. This allows for a structurally equivalent Catalyst
+    * schema to be used with an Avro schema whose field names do not match.
+    * Defaults to false.
+    */
   val positionalFieldMatching: Boolean =
     parameters.get(POSITIONAL_FIELD_MATCHING).exists(_.toBoolean)
 
-  /**
-   * Top level record name in write result, which is required in Avro spec.
-   * See https://avro.apache.org/docs/1.11.1/specification/#schema-record .
-   * Default value is "topLevelRecord"
-   */
+  /** Top level record name in write result, which is required in Avro spec. See
+    * https://avro.apache.org/docs/1.11.1/specification/#schema-record . Default
+    * value is "topLevelRecord"
+    */
   val recordName: String = parameters.getOrElse(RECORD_NAME, "topLevelRecord")
 
-  /**
-   * Record namespace in write result. Default value is "".
-   * See Avro spec for details: https://avro.apache.org/docs/1.11.1/specification/#schema-record .
-   */
+  /** Record namespace in write result. Default value is "". See Avro spec for
+    * details: https://avro.apache.org/docs/1.11.1/specification/#schema-record
+    * .
+    */
   val recordNamespace: String = parameters.getOrElse(RECORD_NAMESPACE, "")
 
-  /**
-   * The `ignoreExtension` option controls ignoring of files without `.avro` extensions in read.
-   * If the option is enabled, all files (with and without `.avro` extension) are loaded.
-   * If the option is not set, the Hadoop's config `avro.mapred.ignore.inputs.without.extension`
-   * is taken into account. If the former one is not set too, file extensions are ignored.
-   */
-  @deprecated("Use the general data source option pathGlobFilter for filtering file names", "3.0")
+  /** The `ignoreExtension` option controls ignoring of files without `.avro`
+    * extensions in read. If the option is enabled, all files (with and without
+    * `.avro` extension) are loaded. If the option is not set, the Hadoop's
+    * config `avro.mapred.ignore.inputs.without.extension` is taken into
+    * account. If the former one is not set too, file extensions are ignored.
+    */
+  @deprecated(
+    "Use the general data source option pathGlobFilter for filtering file names",
+    "3.0"
+  )
   val ignoreExtension: Boolean = {
     val ignoreFilesWithoutExtensionByDefault = false
     val ignoreFilesWithoutExtension = conf.getBoolean(
       AvroFileFormat.IgnoreFilesWithoutExtensionProperty,
-      ignoreFilesWithoutExtensionByDefault)
+      ignoreFilesWithoutExtensionByDefault
+    )
 
     parameters
       .get(IGNORE_EXTENSION)
@@ -111,12 +124,12 @@ private[sql] class AvroOptions(
       .getOrElse(!ignoreFilesWithoutExtension)
   }
 
-  /**
-   * The `compression` option allows to specify a compression codec used in write.
-   * Currently supported codecs are `uncompressed`, `snappy`, `deflate`, `bzip2`, `xz` and
-   * `zstandard`. If the option is not set, the `spark.sql.avro.compression.codec` config is
-   * taken into account. If the former one is not set too, the `snappy` codec is used by default.
-   */
+  /** The `compression` option allows to specify a compression codec used in
+    * write. Currently supported codecs are `uncompressed`, `snappy`, `deflate`,
+    * `bzip2`, `xz` and `zstandard`. If the option is not set, the
+    * `spark.sql.avro.compression.codec` config is taken into account. If the
+    * former one is not set too, the `snappy` codec is used by default.
+    */
   val compression: String = {
     parameters.get(COMPRESSION).getOrElse(SQLConf.get.avroCompressionCodec)
   }
@@ -124,9 +137,9 @@ private[sql] class AvroOptions(
   val parseMode: ParseMode =
     parameters.get(MODE).map(ParseMode.fromString).getOrElse(FailFastMode)
 
-  /**
-   * The rebasing mode for the DATE and TIMESTAMP_MICROS, TIMESTAMP_MILLIS values in reads.
-   */
+  /** The rebasing mode for the DATE and TIMESTAMP_MICROS, TIMESTAMP_MILLIS
+    * values in reads.
+    */
   val datetimeRebaseModeInRead: String = parameters
     .get(DATETIME_REBASE_MODE)
     .getOrElse(SQLConf.get.getConf(SQLConf.AVRO_REBASE_MODE_IN_READ))
@@ -137,8 +150,7 @@ private[sql] class AvroOptions(
 
 private[sql] object AvroOptions extends DataSourceOptions {
   def apply(parameters: Map[String, String]): AvroOptions = {
-    val hadoopConf = SparkSession
-      .getActiveSession
+    val hadoopConf = SparkSession.getActiveSession
       .map(_.sessionState.newHadoopConf())
       .getOrElse(new Configuration())
     new AvroOptions(CaseInsensitiveMap(parameters), hadoopConf)
@@ -163,5 +175,7 @@ private[sql] object AvroOptions extends DataSourceOptions {
   // member_string. If two user-defined type names or a user-defined type name and a built-in
   // type name are identical regardless of case, an exception will be raised. However, in other
   // cases, the field names can be uniquely identified.
-  val STABLE_ID_FOR_UNION_TYPE = newOption("enableStableIdentifiersForUnionType")
+  val STABLE_ID_FOR_UNION_TYPE = newOption(
+    "enableStableIdentifiersForUnionType"
+  )
 }

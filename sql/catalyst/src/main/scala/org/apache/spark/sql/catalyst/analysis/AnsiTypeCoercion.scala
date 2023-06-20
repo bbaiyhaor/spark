@@ -23,81 +23,62 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.types._
 
-/**
- * In Spark ANSI mode, the type coercion rules are based on the type precedence lists of the input
- * data types.
- * As per the section "Type precedence list determination" of "ISO/IEC 9075-2:2011
- * Information technology - Database languages - SQL - Part 2: Foundation (SQL/Foundation)",
- * the type precedence lists of primitive data types are as following:
- *   * Byte: Byte, Short, Int, Long, Decimal, Float, Double
- *   * Short: Short, Int, Long, Decimal, Float, Double
- *   * Int: Int, Long, Decimal, Float, Double
- *   * Long: Long, Decimal, Float, Double
- *   * Decimal: Float, Double, or any wider Numeric type
- *   * Float: Float, Double
- *   * Double: Double
- *   * String: String
- *   * Date: Date, Timestamp
- *   * Timestamp: Timestamp
- *   * Binary: Binary
- *   * Boolean: Boolean
- *   * Interval: Interval
- * As for complex data types, Spark will determine the precedent list recursively based on their
- * sub-types and nullability.
- *
- * With the definition of type precedent list, the general type coercion rules are as following:
- *   * Data type S is allowed to be implicitly cast as type T iff T is in the precedence list of S
- *   * Comparison is allowed iff the data type precedence list of both sides has at least one common
- *     element. When evaluating the comparison, Spark casts both sides as the tightest common data
- *     type of their precedent lists.
- *   * There should be at least one common data type among all the children's precedence lists for
- *     the following operators. The data type of the operator is the tightest common precedent
- *     data type.
- *       * In
- *       * Except
- *       * Intersect
- *       * Greatest
- *       * Least
- *       * Union
- *       * If
- *       * CaseWhen
- *       * CreateArray
- *       * Array Concat
- *       * Sequence
- *       * MapConcat
- *       * CreateMap
- *   * For complex types (struct, array, map), Spark recursively looks into the element type and
- *     applies the rules above.
- *  Note: this new type coercion system will allow implicit converting String type as other
- *  primitive types, in case of breaking too many existing Spark SQL queries. This is a special
- *  rule and it is not from the ANSI SQL standard.
- */
+/** In Spark ANSI mode, the type coercion rules are based on the type precedence
+  * lists of the input data types. As per the section "Type precedence list
+  * determination" of "ISO/IEC 9075-2:2011 Information technology - Database
+  * languages - SQL - Part 2: Foundation (SQL/Foundation)", the type precedence
+  * lists of primitive data types are as following: * Byte: Byte, Short, Int,
+  * Long, Decimal, Float, Double * Short: Short, Int, Long, Decimal, Float,
+  * Double * Int: Int, Long, Decimal, Float, Double * Long: Long, Decimal,
+  * Float, Double * Decimal: Float, Double, or any wider Numeric type * Float:
+  * Float, Double * Double: Double * String: String * Date: Date, Timestamp *
+  * Timestamp: Timestamp * Binary: Binary * Boolean: Boolean * Interval:
+  * Interval As for complex data types, Spark will determine the precedent list
+  * recursively based on their sub-types and nullability.
+  *
+  * With the definition of type precedent list, the general type coercion rules
+  * are as following: * Data type S is allowed to be implicitly cast as type T
+  * iff T is in the precedence list of S * Comparison is allowed iff the data
+  * type precedence list of both sides has at least one common element. When
+  * evaluating the comparison, Spark casts both sides as the tightest common
+  * data type of their precedent lists. * There should be at least one common
+  * data type among all the children's precedence lists for the following
+  * operators. The data type of the operator is the tightest common precedent
+  * data type. * In * Except * Intersect * Greatest * Least * Union * If *
+  * CaseWhen * CreateArray * Array Concat * Sequence * MapConcat * CreateMap *
+  * For complex types (struct, array, map), Spark recursively looks into the
+  * element type and applies the rules above. Note: this new type coercion
+  * system will allow implicit converting String type as other primitive types,
+  * in case of breaking too many existing Spark SQL queries. This is a special
+  * rule and it is not from the ANSI SQL standard.
+  */
 object AnsiTypeCoercion extends TypeCoercionBase {
   override def typeCoercionRules: List[Rule[LogicalPlan]] =
     UnpivotCoercion ::
-    WidenSetOperationTypes ::
-    new AnsiCombinedTypeCoercionRule(
-      InConversion ::
-      PromoteStrings ::
-      DecimalPrecision ::
-      FunctionArgumentConversion ::
-      ConcatCoercion ::
-      MapZipWithCoercion ::
-      EltCoercion ::
-      CaseWhenCoercion ::
-      IfCoercion ::
-      StackCoercion ::
-      Division ::
-      IntegralDivision ::
-      ImplicitTypeCasts ::
-      DateTimeOperations ::
-      WindowFrameCoercion ::
-      GetDateFieldOperations:: Nil) :: Nil
+      WidenSetOperationTypes ::
+      new AnsiCombinedTypeCoercionRule(
+        InConversion ::
+          PromoteStrings ::
+          DecimalPrecision ::
+          FunctionArgumentConversion ::
+          ConcatCoercion ::
+          MapZipWithCoercion ::
+          EltCoercion ::
+          CaseWhenCoercion ::
+          IfCoercion ::
+          StackCoercion ::
+          Division ::
+          IntegralDivision ::
+          ImplicitTypeCasts ::
+          DateTimeOperations ::
+          WindowFrameCoercion ::
+          GetDateFieldOperations :: Nil
+      ) :: Nil
 
   val findTightestCommonType: (DataType, DataType) => Option[DataType] = {
     case (t1, t2) if t1 == t2 => Some(t1)
-    case (NullType, t1) => Some(t1)
-    case (t1, NullType) => Some(t1)
+    case (NullType, t1)       => Some(t1)
+    case (t1, NullType)       => Some(t1)
 
     case (t1: IntegralType, t2: DecimalType) if t2.isWiderThan(t1) =>
       Some(t2)
@@ -117,17 +98,31 @@ object AnsiTypeCoercion extends TypeCoercionBase {
         Some(widerType)
       }
 
-    case (d1: DatetimeType, d2: DatetimeType) => Some(findWiderDateTimeType(d1, d2))
+    case (d1: DatetimeType, d2: DatetimeType) =>
+      Some(findWiderDateTimeType(d1, d2))
 
     case (t1: DayTimeIntervalType, t2: DayTimeIntervalType) =>
-      Some(DayTimeIntervalType(t1.startField.min(t2.startField), t1.endField.max(t2.endField)))
+      Some(
+        DayTimeIntervalType(
+          t1.startField.min(t2.startField),
+          t1.endField.max(t2.endField)
+        )
+      )
     case (t1: YearMonthIntervalType, t2: YearMonthIntervalType) =>
-      Some(YearMonthIntervalType(t1.startField.min(t2.startField), t1.endField.max(t2.endField)))
+      Some(
+        YearMonthIntervalType(
+          t1.startField.min(t2.startField),
+          t1.endField.max(t2.endField)
+        )
+      )
 
     case (t1, t2) => findTypeForComplex(t1, t2, findTightestCommonType)
   }
 
-  override def findWiderTypeForTwo(t1: DataType, t2: DataType): Option[DataType] = {
+  override def findWiderTypeForTwo(
+      t1: DataType,
+      t2: DataType
+  ): Option[DataType] = {
     findTightestCommonType(t1, t2)
       .orElse(findWiderTypeForDecimal(t1, t2))
       .orElse(findWiderTypeForString(t1, t2))
@@ -136,17 +131,21 @@ object AnsiTypeCoercion extends TypeCoercionBase {
 
   /** Promotes StringType to other data types. */
   @scala.annotation.tailrec
-  private def findWiderTypeForString(dt1: DataType, dt2: DataType): Option[DataType] = {
+  private def findWiderTypeForString(
+      dt1: DataType,
+      dt2: DataType
+  ): Option[DataType] = {
     (dt1, dt2) match {
-      case (StringType, _: IntegralType) => Some(LongType)
+      case (StringType, _: IntegralType)   => Some(LongType)
       case (StringType, _: FractionalType) => Some(DoubleType)
-      case (StringType, NullType) => Some(StringType)
+      case (StringType, NullType)          => Some(StringType)
       // If a binary operation contains interval type and string, we can't decide which
       // interval type the string should be promoted as. There are many possible interval
       // types, such as year interval, month interval, day interval, hour interval, etc.
       case (StringType, _: AnsiIntervalType) => None
-      case (StringType, a: AtomicType) => Some(a)
-      case (other, StringType) if other != StringType => findWiderTypeForString(StringType, other)
+      case (StringType, a: AtomicType)       => Some(a)
+      case (other, StringType) if other != StringType =>
+        findWiderTypeForString(StringType, other)
       case _ => None
     }
   }
@@ -155,23 +154,27 @@ object AnsiTypeCoercion extends TypeCoercionBase {
     types.foldLeft[Option[DataType]](Some(NullType))((r, c) =>
       r match {
         case Some(d) => findWiderTypeForTwo(d, c)
-        case _ => None
-      })
+        case _       => None
+      }
+    )
   }
 
-  override def implicitCast(e: Expression, expectedType: AbstractDataType): Option[Expression] = {
+  override def implicitCast(
+      e: Expression,
+      expectedType: AbstractDataType
+  ): Option[Expression] = {
     implicitCast(e.dataType, expectedType).map { dt =>
       if (dt == e.dataType) e else Cast(e, dt)
     }
   }
 
-  /**
-   * In Ansi mode, the implicit cast is only allow when `expectedType` is in the type precedent
-   * list of `inType`.
-   */
+  /** In Ansi mode, the implicit cast is only allow when `expectedType` is in
+    * the type precedent list of `inType`.
+    */
   private def implicitCast(
       inType: DataType,
-      expectedType: AbstractDataType): Option[DataType] = {
+      expectedType: AbstractDataType
+  ): Option[DataType] = {
     (inType, expectedType) match {
       // If the expected type equals the input type, no need to cast.
       case _ if expectedType.acceptsType(inType) => Some(inType)
@@ -224,14 +227,15 @@ object AnsiTypeCoercion extends TypeCoercionBase {
     }
   }
 
-  override def canCast(from: DataType, to: DataType): Boolean = Cast.canAnsiCast(from, to)
+  override def canCast(from: DataType, to: DataType): Boolean =
+    Cast.canAnsiCast(from, to)
 
   object PromoteStrings extends TypeCoercionRule {
     private def castExpr(expr: Expression, targetType: DataType): Expression = {
       expr.dataType match {
-        case NullType => Literal.create(null, targetType)
+        case NullType             => Literal.create(null, targetType)
         case l if l != targetType => Cast(expr, targetType)
-        case _ => expr
+        case _                    => expr
       }
     }
 
@@ -240,12 +244,17 @@ object AnsiTypeCoercion extends TypeCoercionBase {
       case e if !e.childrenResolved => e
 
       case b @ BinaryOperator(left, right)
-        if findWiderTypeForString(left.dataType, right.dataType).isDefined =>
-        val promoteType = findWiderTypeForString(left.dataType, right.dataType).get
-        b.withNewChildren(Seq(castExpr(left, promoteType), castExpr(right, promoteType)))
+          if findWiderTypeForString(left.dataType, right.dataType).isDefined =>
+        val promoteType =
+          findWiderTypeForString(left.dataType, right.dataType).get
+        b.withNewChildren(
+          Seq(castExpr(left, promoteType), castExpr(right, promoteType))
+        )
 
-      case Abs(e @ StringType(), failOnError) => Abs(Cast(e, DoubleType), failOnError)
-      case m @ UnaryMinus(e @ StringType(), _) => m.withNewChildren(Seq(Cast(e, DoubleType)))
+      case Abs(e @ StringType(), failOnError) =>
+        Abs(Cast(e, DoubleType), failOnError)
+      case m @ UnaryMinus(e @ StringType(), _) =>
+        m.withNewChildren(Seq(Cast(e, DoubleType)))
       case UnaryPositive(e @ StringType()) => UnaryPositive(Cast(e, DoubleType))
 
       case d @ DateAdd(left @ StringType(), _) =>
@@ -270,14 +279,15 @@ object AnsiTypeCoercion extends TypeCoercionBase {
     }
   }
 
-  /**
-   * When getting a date field from a Timestamp column, cast the column as date type.
-   *
-   * This is Spark's hack to make the implementation simple. In the default type coercion rules,
-   * the implicit cast rule does the work. However, The ANSI implicit cast rule doesn't allow
-   * converting Timestamp type as Date type, so we need to have this additional rule
-   * to make sure the date field extraction from Timestamp columns works.
-   */
+  /** When getting a date field from a Timestamp column, cast the column as date
+    * type.
+    *
+    * This is Spark's hack to make the implementation simple. In the default
+    * type coercion rules, the implicit cast rule does the work. However, The
+    * ANSI implicit cast rule doesn't allow converting Timestamp type as Date
+    * type, so we need to have this additional rule to make sure the date field
+    * extraction from Timestamp columns works.
+    */
   object GetDateFieldOperations extends TypeCoercionRule {
     override def transform: PartialFunction[Expression, Expression] = {
       // Skip nodes who's children have not been resolved yet.
@@ -293,15 +303,17 @@ object AnsiTypeCoercion extends TypeCoercionBase {
       // Skip nodes who's children have not been resolved yet.
       case e if !e.childrenResolved => e
 
-      case d @ DateAdd(AnyTimestampType(), _) => d.copy(startDate = Cast(d.startDate, DateType))
-      case d @ DateSub(AnyTimestampType(), _) => d.copy(startDate = Cast(d.startDate, DateType))
+      case d @ DateAdd(AnyTimestampType(), _) =>
+        d.copy(startDate = Cast(d.startDate, DateType))
+      case d @ DateSub(AnyTimestampType(), _) =>
+        d.copy(startDate = Cast(d.startDate, DateType))
 
       case s @ SubtractTimestamps(DateType(), AnyTimestampType(), _, _) =>
         s.copy(left = Cast(s.left, s.right.dataType))
       case s @ SubtractTimestamps(AnyTimestampType(), DateType(), _, _) =>
         s.copy(right = Cast(s.right, s.left.dataType))
       case s @ SubtractTimestamps(AnyTimestampType(), AnyTimestampType(), _, _)
-        if s.left.dataType != s.right.dataType =>
+          if s.left.dataType != s.right.dataType =>
         val newLeft = castIfNotSameType(s.left, TimestampNTZType)
         val newRight = castIfNotSameType(s.right, TimestampNTZType)
         s.copy(left = newLeft, right = newRight)
@@ -310,6 +322,6 @@ object AnsiTypeCoercion extends TypeCoercionBase {
 
   // This is for generating a new rule id, so that we can run both default and Ansi
   // type coercion rules against one logical plan.
-  class AnsiCombinedTypeCoercionRule(rules: Seq[TypeCoercionRule]) extends
-    CombinedTypeCoercionRule(rules)
+  class AnsiCombinedTypeCoercionRule(rules: Seq[TypeCoercionRule])
+      extends CombinedTypeCoercionRule(rules)
 }

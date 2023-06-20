@@ -34,18 +34,26 @@ import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{InternalRow, NoopFilters, OrderedFilters}
-import org.apache.spark.sql.execution.datasources.{DataSourceUtils, FileFormat, OutputWriterFactory, PartitionedFile}
+import org.apache.spark.sql.execution.datasources.{
+  DataSourceUtils,
+  FileFormat,
+  OutputWriterFactory,
+  PartitionedFile
+}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SerializableConfiguration
 
-private[sql] class AvroFileFormat extends FileFormat
-  with DataSourceRegister with Logging with Serializable {
+private[sql] class AvroFileFormat
+    extends FileFormat
+    with DataSourceRegister
+    with Logging
+    with Serializable {
 
   override def equals(other: Any): Boolean = other match {
     case _: AvroFileFormat => true
-    case _ => false
+    case _                 => false
   }
 
   // Dummy hashCode() to appease ScalaStyle.
@@ -54,7 +62,8 @@ private[sql] class AvroFileFormat extends FileFormat
   override def inferSchema(
       spark: SparkSession,
       options: Map[String, String],
-      files: Seq[FileStatus]): Option[StructType] = {
+      files: Seq[FileStatus]
+  ): Option[StructType] = {
     AvroUtils.inferSchema(spark, options, files)
   }
 
@@ -65,13 +74,15 @@ private[sql] class AvroFileFormat extends FileFormat
   override def isSplitable(
       sparkSession: SparkSession,
       options: Map[String, String],
-      path: Path): Boolean = true
+      path: Path
+  ): Boolean = true
 
   override def prepareWrite(
       spark: SparkSession,
       job: Job,
       options: Map[String, String],
-      dataSchema: StructType): OutputWriterFactory = {
+      dataSchema: StructType
+  ): OutputWriterFactory = {
     AvroUtils.prepareWrite(spark.sessionState.conf, job, options, dataSchema)
   }
 
@@ -82,7 +93,8 @@ private[sql] class AvroFileFormat extends FileFormat
       requiredSchema: StructType,
       filters: Seq[Filter],
       options: Map[String, String],
-      hadoopConf: Configuration): (PartitionedFile) => Iterator[InternalRow] = {
+      hadoopConf: Configuration
+  ): (PartitionedFile) => Iterator[InternalRow] = {
 
     val broadcastedConf =
       spark.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
@@ -97,12 +109,15 @@ private[sql] class AvroFileFormat extends FileFormat
       // Doing input file filtering is improper because we may generate empty tasks that process no
       // input files but stress the scheduler. We should probably add a more general input file
       // filtering mechanism for `FileFormat` data sources. See SPARK-16317.
-      if (parsedOptions.ignoreExtension || file.urlEncodedPath.endsWith(".avro")) {
+      if (
+        parsedOptions.ignoreExtension || file.urlEncodedPath.endsWith(".avro")
+      ) {
         val reader = {
           val in = new FsInput(file.toPath, conf)
           try {
             val datumReader = userProvidedSchema match {
-              case Some(userSchema) => new GenericDatumReader[GenericRecord](userSchema)
+              case Some(userSchema) =>
+                new GenericDatumReader[GenericRecord](userSchema)
               case _ => new GenericDatumReader[GenericRecord]()
             }
             DataFileReader.openReader(in, datumReader)
@@ -126,7 +141,8 @@ private[sql] class AvroFileFormat extends FileFormat
 
         val datetimeRebaseMode = DataSourceUtils.datetimeRebaseSpec(
           reader.asInstanceOf[DataFileReader[_]].getMetaString,
-          datetimeRebaseModeInRead)
+          datetimeRebaseModeInRead
+        )
 
         val avroFilters = if (SQLConf.get.avroFilterPushDown) {
           new OrderedFilters(filters, requiredSchema)
@@ -141,7 +157,8 @@ private[sql] class AvroFileFormat extends FileFormat
             requiredSchema,
             parsedOptions.positionalFieldMatching,
             datetimeRebaseMode,
-            avroFilters)
+            avroFilters
+          )
           override val stopPosition = file.start + file.length
 
           override def hasNext: Boolean = hasNextRow
@@ -153,28 +170,33 @@ private[sql] class AvroFileFormat extends FileFormat
     }
   }
 
-  override def supportDataType(dataType: DataType): Boolean = AvroUtils.supportsDataType(dataType)
+  override def supportDataType(dataType: DataType): Boolean =
+    AvroUtils.supportsDataType(dataType)
 
   override def supportFieldName(name: String): Boolean = {
     if (name.length == 0) {
       false
     } else {
       name.zipWithIndex.forall {
-        case (c, 0) if !Character.isLetter(c) && c != '_' => false
+        case (c, 0) if !Character.isLetter(c) && c != '_'        => false
         case (c, _) if !Character.isLetterOrDigit(c) && c != '_' => false
-        case _ => true
+        case _                                                   => true
       }
     }
   }
 }
 
 private[avro] object AvroFileFormat {
-  val IgnoreFilesWithoutExtensionProperty = "avro.mapred.ignore.inputs.without.extension"
+  val IgnoreFilesWithoutExtensionProperty =
+    "avro.mapred.ignore.inputs.without.extension"
 
   // Register the customized decimal type backed by long.
-  LogicalTypes.register(CustomDecimal.TYPE_NAME, new LogicalTypes.LogicalTypeFactory {
-    override def fromSchema(schema: Schema): LogicalType = {
-      new CustomDecimal(schema)
+  LogicalTypes.register(
+    CustomDecimal.TYPE_NAME,
+    new LogicalTypes.LogicalTypeFactory {
+      override def fromSchema(schema: Schema): LogicalType = {
+        new CustomDecimal(schema)
+      }
     }
-  })
+  )
 }

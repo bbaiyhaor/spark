@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-
 package org.apache.spark.sql.catalyst.analysis
 
 import org.apache.spark.sql.AnalysisException
@@ -24,8 +23,11 @@ import org.apache.spark.sql.connector.catalog.Identifier
 
 class CannotReplaceMissingTableException(
     tableIdentifier: Identifier,
-    cause: Option[Throwable] = None)
-  extends AnalysisException(
+    cause: Option[Throwable] = None
+) extends AnalysisException(
       errorClass = "TABLE_OR_VIEW_NOT_FOUND",
-      messageParameters = Map("relationName"
-        -> quoteNameParts(tableIdentifier.namespace :+ tableIdentifier.name)))
+      messageParameters = Map(
+        "relationName"
+          -> quoteNameParts(tableIdentifier.namespace :+ tableIdentifier.name)
+      )
+    )
