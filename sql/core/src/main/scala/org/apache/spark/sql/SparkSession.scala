@@ -670,6 +670,10 @@ class SparkSession private (
     *
     * @since 3.4.0
     */
+  // sqlText -> 
+  // parsedPlan -> analyzed -> withCachedData -> optimizedPlan -> 层层处理后的逻辑计划
+  // sparkPlan -> executedPlan -> 层层处理后的物理计划
+  // toRdd
   @Experimental
   def sql(sqlText: String, args: Map[String, Any]): DataFrame = withActive {
     val tracker = new QueryPlanningTracker

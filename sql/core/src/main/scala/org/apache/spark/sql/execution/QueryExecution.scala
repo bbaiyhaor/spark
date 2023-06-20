@@ -83,6 +83,9 @@ class QueryExecution(
   val id: Long = QueryExecution.nextExecutionId
 
   // TODO: Move the planner an optimizer into here from SessionState.
+  // QueryExecution获取一个sparkSession.sessionState.planner，
+  // 这是一个优化器，其实现类是SparkPlanner, 该planner会把一个优化后的逻辑计划
+  // 转换成一个或多个物理计划。
   protected def planner = sparkSession.sessionState.planner
 
   def assertAnalyzed(): Unit = analyzed
@@ -92,7 +95,8 @@ class QueryExecution(
       UnsupportedOperationChecker.checkForBatch(analyzed)
     }
   }
-
+  // executeAndCheck先对一个逻辑计划进行检查再进行分析，
+  // 返回一个已完成分析的逻辑计划：analyzed。
   lazy val analyzed: LogicalPlan = executePhase(QueryPlanningTracker.ANALYSIS) {
     // We can't clone `logical` here, which will reset the `_analyzed` flag.
     sparkSession.sessionState.analyzer.executeAndCheck(logical, tracker)
@@ -153,6 +157,7 @@ class QueryExecution(
     }
   }
 
+  // useCachedData对分析后的逻辑计划analyzed进行缓存，更新缓存中的逻辑计划
   lazy val withCachedData: LogicalPlan = sparkSession.withActive {
     assertAnalyzed()
     assertSupported()
@@ -163,6 +168,7 @@ class QueryExecution(
 
   def assertCommandExecuted(): Unit = commandExecuted
 
+  // optimizer 对逻辑计划进行优化，得到优化后的逻辑计划 optimizedPlan
   lazy val optimizedPlan: LogicalPlan = {
     // We need to materialize the commandExecuted here because optimizedPlan is also tracked under
     // the optimizing phase
@@ -184,6 +190,7 @@ class QueryExecution(
 
   private def assertOptimized(): Unit = optimizedPlan
 
+  // 把 optimizedPlan 转换成物理计划 sparkPlan
   lazy val sparkPlan: SparkPlan = {
     // We need to materialize the optimizedPlan here because sparkPlan is also tracked under
     // the planning phase
@@ -199,6 +206,7 @@ class QueryExecution(
     }
   }
 
+  // prepareForExecution 对物理计划进行优化，得到新的物理计划 executedPlan
   // executedPlan should not be used to initialize any SparkPlan. It should be
   // only used for execution.
   lazy val executedPlan: SparkPlan = {
@@ -212,6 +220,7 @@ class QueryExecution(
     }
   }
 
+  // toRdd函数把物理计划转换成rdd的执行代码
   /** Internal version of the RDD. Avoids copies and has no schema. Note for
     * callers: Spark may apply various optimization including reusing object:
     * this means the row is valid only for the iteration it is retrieved. You
