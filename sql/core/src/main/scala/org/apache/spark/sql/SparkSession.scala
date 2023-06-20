@@ -630,6 +630,8 @@ class SparkSession private(
   def sql(sqlText: String, args: Map[String, Any]): DataFrame = withActive {
     val tracker = new QueryPlanningTracker
     val plan = tracker.measurePhase(QueryPlanningTracker.PARSING) {
+      // 调用 sqlParser.parsePlan 将 sqlText 解析为一个
+      // 抽象语法树（AST）并返回一个未分析的逻辑计划（Unresolved Logical Plan）
       val parsedPlan = sessionState.sqlParser.parsePlan(sqlText)
       if (args.nonEmpty) {
         ParameterizedQuery(parsedPlan, args.mapValues(lit(_).expr).toMap)
