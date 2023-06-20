@@ -59,7 +59,9 @@ class PlanChangeLogger[TreeType <: TreeNode[_]] extends Logging {
         def message(): String = {
           s"""
              |=== Applying Rule $ruleName ===
-             |${sideBySide(oldPlan.treeString, newPlan.treeString).mkString("\n")}
+             |${sideBySide(oldPlan.treeString, newPlan.treeString).mkString(
+              "\n"
+            )}
            """.stripMargin
         }
 
@@ -68,13 +70,19 @@ class PlanChangeLogger[TreeType <: TreeNode[_]] extends Logging {
     }
   }
 
-  def logBatch(batchName: String, oldPlan: TreeType, newPlan: TreeType): Unit = {
+  def logBatch(
+      batchName: String,
+      oldPlan: TreeType,
+      newPlan: TreeType
+  ): Unit = {
     if (logBatches.isEmpty || logBatches.get.contains(batchName)) {
       def message(): String = {
         if (!oldPlan.fastEquals(newPlan)) {
           s"""
              |=== Result of Batch $batchName ===
-             |${sideBySide(oldPlan.treeString, newPlan.treeString).mkString("\n")}
+             |${sideBySide(oldPlan.treeString, newPlan.treeString).mkString(
+              "\n"
+            )}
           """.stripMargin
         } else {
           s"Batch $batchName has no effect."
@@ -104,20 +112,20 @@ class PlanChangeLogger[TreeType <: TreeNode[_]] extends Logging {
     logLevel match {
       case "TRACE" => logTrace(f)
       case "DEBUG" => logDebug(f)
-      case "INFO" => logInfo(f)
-      case "WARN" => logWarning(f)
+      case "INFO"  => logInfo(f)
+      case "WARN"  => logWarning(f)
       case "ERROR" => logError(f)
-      case _ => logTrace(f)
+      case _       => logTrace(f)
     }
   }
 }
 
 abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
 
-  /**
-   * An execution strategy for rules that indicates the maximum number of executions. If the
-   * execution reaches fix point (i.e. converge) before maxIterations, it will stop.
-   */
+  /** An execution strategy for rules that indicates the maximum number of
+    * executions. If the execution reaches fix point (i.e. converge) before
+    * maxIterations, it will stop.
+    */
   abstract class Strategy {
 
     /** The maximum number of executions. */
@@ -133,60 +141,73 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
   /** A strategy that is run once and idempotent. */
   case object Once extends Strategy { val maxIterations = 1 }
 
-  /**
-   * A strategy that runs until fix point or maxIterations times, whichever comes first.
-   * Especially, a FixedPoint(1) batch is supposed to run only once.
-   */
+  /** A strategy that runs until fix point or maxIterations times, whichever
+    * comes first. Especially, a FixedPoint(1) batch is supposed to run only
+    * once.
+    */
   case class FixedPoint(
-    override val maxIterations: Int,
-    override val errorOnExceed: Boolean = false,
-    override val maxIterationsSetting: String = null) extends Strategy
+      override val maxIterations: Int,
+      override val errorOnExceed: Boolean = false,
+      override val maxIterationsSetting: String = null
+  ) extends Strategy
 
   /** A batch of rules. */
-  protected case class Batch(name: String, strategy: Strategy, rules: Rule[TreeType]*)
+  protected case class Batch(
+      name: String,
+      strategy: Strategy,
+      rules: Rule[TreeType]*
+  )
 
-  /** Defines a sequence of rule batches, to be overridden by the implementation. */
+  /** Defines a sequence of rule batches, to be overridden by the
+    * implementation.
+    */
   protected def batches: Seq[Batch]
 
   /** Once batches that are excluded in the idempotence checker */
   protected val excludedOnceBatches: Set[String] = Set.empty
 
-  /**
-   * Defines a validate function that validates the plan changes after the execution of each rule,
-   * to make sure these rules make valid changes to the plan. For example, we can check whether
-   * a plan is still resolved after each rule in `Optimizer`, so that we can catch rules that
-   * turn the plan into unresolved.
-   */
+  /** Defines a validate function that validates the plan changes after the
+    * execution of each rule, to make sure these rules make valid changes to the
+    * plan. For example, we can check whether a plan is still resolved after
+    * each rule in `Optimizer`, so that we can catch rules that turn the plan
+    * into unresolved.
+    */
   protected def validatePlanChanges(
       previousPlan: TreeType,
-      currentPlan: TreeType): Option[String] = None
+      currentPlan: TreeType
+  ): Option[String] = None
 
-  /**
-   * Util method for checking whether a plan remains the same if re-optimized.
-   */
+  /** Util method for checking whether a plan remains the same if re-optimized.
+    */
   private def checkBatchIdempotence(batch: Batch, plan: TreeType): Unit = {
     val reOptimized = batch.rules.foldLeft(plan) { case (p, rule) => rule(p) }
     if (!plan.fastEquals(reOptimized)) {
       throw QueryExecutionErrors.onceStrategyIdempotenceIsBrokenForBatchError(
-        batch.name, plan, reOptimized)
+        batch.name,
+        plan,
+        reOptimized
+      )
     }
   }
 
-  /**
-   * Executes the batches of rules defined by the subclass, and also tracks timing info for each
-   * rule using the provided tracker.
-   * @see [[execute]]
-   */
-  def executeAndTrack(plan: TreeType, tracker: QueryPlanningTracker): TreeType = {
+  /** Executes the batches of rules defined by the subclass, and also tracks
+    * timing info for each rule using the provided tracker.
+    * @see
+    *   [[execute]]
+    */
+  def executeAndTrack(
+      plan: TreeType,
+      tracker: QueryPlanningTracker
+  ): TreeType = {
     QueryPlanningTracker.withTracker(tracker) {
       execute(plan)
     }
   }
 
-  /**
-   * Executes the batches of rules defined by the subclass. The batches are executed serially
-   * using the defined execution strategy. Within each batch, rules are also executed serially.
-   */
+  /** Executes the batches of rules defined by the subclass. The batches are
+    * executed serially using the defined execution strategy. Within each batch,
+    * rules are also executed serially.
+    */
   def execute(plan: TreeType): TreeType = {
     var curPlan = plan
     val queryExecutionMetrics = RuleExecutor.queryExecutionMeter
@@ -202,8 +223,10 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
           val ruleExecutorName = this.getClass.getName.stripSuffix("$")
           throw new SparkException(
             errorClass = "PLAN_VALIDATION_FAILED_RULE_EXECUTOR",
-            messageParameters = Map("ruleExecutor" -> ruleExecutorName, "reason" -> msg),
-            cause = null)
+            messageParameters =
+              Map("ruleExecutor" -> ruleExecutorName, "reason" -> msg),
+            cause = null
+          )
         case _ =>
       }
     }
@@ -216,39 +239,45 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
 
       // Run until fix point (or the max number of iterations as specified in the strategy.
       while (continue) {
-        curPlan = batch.rules.foldLeft(curPlan) {
-          case (plan, rule) =>
-            val startTime = System.nanoTime()
-            val result = rule(plan)
-            val runTime = System.nanoTime() - startTime
-            val effective = !result.fastEquals(plan)
+        curPlan = batch.rules.foldLeft(curPlan) { case (plan, rule) =>
+          val startTime = System.nanoTime()
+          val result = rule(plan)
+          val runTime = System.nanoTime() - startTime
+          val effective = !result.fastEquals(plan)
 
-            if (effective) {
-              queryExecutionMetrics.incNumEffectiveExecution(rule.ruleName)
-              queryExecutionMetrics.incTimeEffectiveExecutionBy(rule.ruleName, runTime)
-              planChangeLogger.logRule(rule.ruleName, plan, result)
-              // Run the plan changes validation after each rule.
-              if (Utils.isTesting || enableValidation) {
-                validatePlanChanges(plan, result) match {
-                  case Some(msg) =>
-                    throw new SparkException(
-                      errorClass = "PLAN_VALIDATION_FAILED_RULE_IN_BATCH",
-                      messageParameters = Map(
-                        "rule" -> rule.ruleName,
-                        "batch" -> batch.name,
-                        "reason" -> msg),
-                      cause = null)
-                  case _ =>
-                }
+          if (effective) {
+            queryExecutionMetrics.incNumEffectiveExecution(rule.ruleName)
+            queryExecutionMetrics.incTimeEffectiveExecutionBy(
+              rule.ruleName,
+              runTime
+            )
+            planChangeLogger.logRule(rule.ruleName, plan, result)
+            // Run the plan changes validation after each rule.
+            if (Utils.isTesting || enableValidation) {
+              validatePlanChanges(plan, result) match {
+                case Some(msg) =>
+                  throw new SparkException(
+                    errorClass = "PLAN_VALIDATION_FAILED_RULE_IN_BATCH",
+                    messageParameters = Map(
+                      "rule" -> rule.ruleName,
+                      "batch" -> batch.name,
+                      "reason" -> msg
+                    ),
+                    cause = null
+                  )
+                case _ =>
               }
             }
-            queryExecutionMetrics.incExecutionTimeBy(rule.ruleName, runTime)
-            queryExecutionMetrics.incNumExecution(rule.ruleName)
+          }
+          queryExecutionMetrics.incExecutionTimeBy(rule.ruleName, runTime)
+          queryExecutionMetrics.incNumExecution(rule.ruleName)
 
-            // Record timing information using QueryPlanningTracker
-            tracker.foreach(_.recordRuleInvocation(rule.ruleName, runTime, effective))
+          // Record timing information using QueryPlanningTracker
+          tracker.foreach(
+            _.recordRuleInvocation(rule.ruleName, runTime, effective)
+          )
 
-            result
+          result
         }
         iteration += 1
         if (iteration > batch.strategy.maxIterations) {
@@ -259,8 +288,9 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
             } else {
               s", please set '${batch.strategy.maxIterationsSetting}' to a larger value."
             }
-            val message = s"Max iterations (${iteration - 1}) reached for batch ${batch.name}" +
-              s"$endingMsg"
+            val message =
+              s"Max iterations (${iteration - 1}) reached for batch ${batch.name}" +
+                s"$endingMsg"
             if (Utils.isTesting || batch.strategy.errorOnExceed) {
               throw new RuntimeException(message)
             } else {
@@ -268,8 +298,10 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
             }
           }
           // Check idempotence for Once batches.
-          if (batch.strategy == Once &&
-            Utils.isTesting && !excludedOnceBatches.contains(batch.name)) {
+          if (
+            batch.strategy == Once &&
+            Utils.isTesting && !excludedOnceBatches.contains(batch.name)
+          ) {
             checkBatchIdempotence(batch, curPlan)
           }
           continue = false
@@ -277,7 +309,8 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
 
         if (curPlan.fastEquals(lastPlan)) {
           logTrace(
-            s"Fixed point reached for batch ${batch.name} after ${iteration - 1} iterations.")
+            s"Fixed point reached for batch ${batch.name} after ${iteration - 1} iterations."
+          )
           continue = false
         }
         lastPlan = curPlan
@@ -285,7 +318,9 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
 
       planChangeLogger.logBatch(batch.name, batchStartPlan, curPlan)
     }
-    planChangeLogger.logMetrics(RuleExecutor.getCurrentMetrics() - beforeMetrics)
+    planChangeLogger.logMetrics(
+      RuleExecutor.getCurrentMetrics() - beforeMetrics
+    )
 
     curPlan
   }
