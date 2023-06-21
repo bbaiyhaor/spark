@@ -55,14 +55,18 @@ case class InsertAdaptiveSparkPlan(
 
   private def applyInternal(plan: SparkPlan, isSubquery: Boolean): SparkPlan =
     plan match {
+      // [1] 判断是否开启AQE
       case _ if !conf.adaptiveExecutionEnabled => plan
+      // [2] 和数据写入相关的命令算子不会应用AQE
       case _: ExecutedCommandExec              => plan
       case _: CommandResultExec                => plan
       case c: V2CommandExec => c.withNewChildren(c.children.map(apply))
+      // [3] 判断是否满足以下条件之一可以应用AQE
       case c: DataWritingCommandExec
           if !c.cmd.isInstanceOf[V1WriteCommand] || !conf.plannedWriteEnabled =>
         c.copy(child = apply( c.child))
       case _ if shouldApplyAQE(plan, isSubquery) =>
+        // [4] 验证是否支持AQE
         if (supportAdaptive(plan)) {
           try {
             // Plan sub-queries recursively and pass in the shared stage cache for exchange reuse.
@@ -111,9 +115,13 @@ case class InsertAdaptiveSparkPlan(
   //   - The query contains nested `AdaptiveSparkPlanExec`.
   //   - The query contains `InMemoryTableScanExec`.
   //   - The query contains sub-query.
+  // 判断是否满足以下条件之一可以应用AQE
   private def shouldApplyAQE(plan: SparkPlan, isSubquery: Boolean): Boolean = {
+    // 1. 开启AQE强制应用
+    // 2. query中包含子查询
     conf.getConf(SQLConf.ADAPTIVE_EXECUTION_FORCE_APPLY) || isSubquery || {
       plan.exists {
+        // 3. query 包含Exchange算子或者是否需要添加Exchange算子，即存在shuffle or broadcast事件
         case _: Exchange => true
         case p
             if !p.requiredChildDistribution.forall(
