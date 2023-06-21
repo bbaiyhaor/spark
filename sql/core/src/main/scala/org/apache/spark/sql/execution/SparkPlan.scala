@@ -121,6 +121,8 @@ abstract class SparkPlan
     *   The logical plan this plan is linked to.
     */
   def logicalLink: Option[LogicalPlan] =
+    // LOGICAL_PLAN_TAG用来记录当前的SparkPlan是从哪个LogicalPlan转换而来的
+    // 如果找不到，默认为LOGICAL_PLAN_INHERITED_TAG，表示继承祖先的逻辑计划
     getTagValue(SparkPlan.LOGICAL_PLAN_TAG)
       .orElse(getTagValue(SparkPlan.LOGICAL_PLAN_INHERITED_TAG))
 

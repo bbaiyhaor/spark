@@ -71,13 +71,17 @@ case class InsertAdaptiveSparkPlan(
           try {
             // Plan sub-queries recursively and pass in the shared stage cache for exchange reuse.
             // Fall back to non-AQE mode if AQE is not supported in any of the sub-queries.
+            // [1] 预处理子查询，先要构建一个子查询 Map
             val subqueryMap = buildSubqueryMap(plan)
+            // [2] 应用自适应的子查询 Rule
             val planSubqueriesRule = PlanAdaptiveSubqueries(subqueryMap)
             val preprocessingRules = Seq(planSubqueriesRule)
             // Run pre-processing rules.
+            // [3] 运行预处理规则
             val newPlan =
               AdaptiveSparkPlanExec.applyPhysicalRules(plan, preprocessingRules)
             logDebug(s"Adaptive execution enabled for plan: $plan")
+            // [4] 调用 AdaptiveSparkPlanExec 算子
             AdaptiveSparkPlanExec(
               newPlan,
               adaptiveExecutionContext,
