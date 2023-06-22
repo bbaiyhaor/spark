@@ -297,6 +297,9 @@ case class AdaptiveSparkPlanExec(
       // Use inputPlan logicalLink here in case some top level physical nodes may be removed
       // during `initialPlan`
       var currentLogicalPlan = inputPlan.logicalLink.get
+      // 在getFinalPhysicalPlan会将currentPhysicalPlan传给createQueryStages方法
+      // 这个方法的输出类型是CreateStageResult，这个方法会从下到上递归的遍历物理计划树
+      // 生成新的Query stage,这个 createQueryStages 方法在每次计划发生变化时都会被调用
       var result = createQueryStages(currentPhysicalPlan)
       val events = new LinkedBlockingQueue[StageMaterializationEvent]()
       val errors = new mutable.ArrayBuffer[Throwable]()

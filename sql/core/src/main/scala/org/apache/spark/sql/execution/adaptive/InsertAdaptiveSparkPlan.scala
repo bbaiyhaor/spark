@@ -72,16 +72,24 @@ case class InsertAdaptiveSparkPlan(
             // Plan sub-queries recursively and pass in the shared stage cache for exchange reuse.
             // Fall back to non-AQE mode if AQE is not supported in any of the sub-queries.
             // [1] 预处理子查询，先要构建一个子查询 Map
+            // 在buildSubqueryMap(plan)执行后会为所有子查询返回“表达式ID”到“执行计划”的映射。
             val subqueryMap = buildSubqueryMap(plan)
             // [2] 应用自适应的子查询 Rule
+            // 将子查询 Map 传给自适应子查询Rule —— PlanAdaptiveSubqueries
+            // 这个规则会递归地检查物理计划树中是否存在
+            // ScalarSubquery、InSubquery和 DynamicPruningSubquery，并进行针对性处理。
             val planSubqueriesRule = PlanAdaptiveSubqueries(subqueryMap)
             val preprocessingRules = Seq(planSubqueriesRule)
             // Run pre-processing rules.
             // [3] 运行预处理规则
+            // 构建好预处理子查询规则后，我们通过 applyPhysicalRules 来执行规则
+            // 应用 SparkPlan 上的一系列物理算子规则。
             val newPlan =
               AdaptiveSparkPlanExec.applyPhysicalRules(plan, preprocessingRules)
             logDebug(s"Adaptive execution enabled for plan: $plan")
             // [4] 调用 AdaptiveSparkPlanExec 算子
+            // 最后将执行结果传给 AQE 的物理执行算子 AdaptiveSparkPlanExec
+            // 既然它是物理计划执行算子，那么它的核心就在于Executor，即方法——doExecute
             AdaptiveSparkPlanExec(
               newPlan,
               adaptiveExecutionContext,
