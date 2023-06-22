@@ -729,19 +729,16 @@ case class AdaptiveSparkPlanExec(
     *   1. If the query stage can be mapped to an integral logical sub-tree,
     *      replace the corresponding logical sub-tree with a leaf node
     *      [[LogicalQueryStage]] referencing this query stage. For example: Join
-    *      SMJ SMJ / \ / \ / \ r1 r2 => Xchg1 Xchg2 => Stage1 Stage2
-    * \| | r1 r2 The updated plan node will be: Join / \
-    * LogicalQueryStage1(Stage1) LogicalQueryStage2(Stage2)
+    *      SMJ SMJ / \ / \ / \ r1 r2 => Xchg1 Xchg2 => Stage1 Stage2 \| | r1 r2
+    *      The updated plan node will be: Join / \ LogicalQueryStage1(Stage1)
+    *      LogicalQueryStage2(Stage2)
     *
     * 2. Otherwise (which means the query stage can only be mapped to part of a
     * logical sub-tree), replace the corresponding logical sub-tree with a leaf
     * node [[LogicalQueryStage]] referencing to the top physical node into which
     * this logical node is transformed during physical planning. For example:
-    * Agg HashAgg HashAgg
-    * \| | | child => Xchg => Stage1
-    * \| HashAgg
-    * \| child The updated plan node will be: LogicalQueryStage(HashAgg -
-    * Stage1)
+    * Agg HashAgg HashAgg \| | | child => Xchg => Stage1 \| HashAgg \| child The
+    * updated plan node will be: LogicalQueryStage(HashAgg - Stage1)
     */
   private def replaceWithQueryStagesInLogicalPlan(
       plan: LogicalPlan,
