@@ -304,9 +304,11 @@ case class AdaptiveSparkPlanExec(
       val events = new LinkedBlockingQueue[StageMaterializationEvent]()
       val errors = new mutable.ArrayBuffer[Throwable]()
       var stagesToReplace = Seq.empty[QueryStageExec]
+      // [1] 是否所有的孩子stage都已经被物化
       while (!result.allChildStagesMaterialized) {
         currentPhysicalPlan = result.newPlan
         if (result.newStages.nonEmpty) {
+          // [2] 通知监听器物理计划已经变更
           stagesToReplace = result.newStages ++ stagesToReplace
           executionId.foreach(onUpdatePlan(_, result.newStages.map(_.plan)))
 
@@ -315,6 +317,7 @@ case class AdaptiveSparkPlanExec(
           // This partial fix only guarantees the start of materialization for BroadcastQueryStage
           // is prior to others, but because the submission of collect job for broadcasting is
           // running in another thread, the issue is not completely resolved.
+          // [3] 先提交广播阶段的任务，避免等待任务并导致广播超时
           val reorderedNewStages = result.newStages
             .sortWith {
               case (_: BroadcastQueryStageExec, _: BroadcastQueryStageExec) =>
@@ -324,6 +327,7 @@ case class AdaptiveSparkPlanExec(
             }
 
           // Start materialization of all new stages and fail fast if any stages failed eagerly
+          // [4] 等待下一个完成的stage，这表明新的统计数据可用，并且可能可以创建新的阶段。
           reorderedNewStages.foreach { stage =>
             try {
               stage
@@ -373,6 +377,7 @@ case class AdaptiveSparkPlanExec(
         // the current physical plan. Once a new plan is adopted and both logical and physical
         // plans are updated, we can clear the query stage list because at this point the two plans
         // are semantically and physically in sync again.
+        // [5] 尝试重新优化和重新规划。如果新计划的成本小于或者等于当前的计划就采用新计划
         val logicalPlan = replaceWithQueryStagesInLogicalPlan(
           currentLogicalPlan,
           stagesToReplace
@@ -400,10 +405,12 @@ case class AdaptiveSparkPlanExec(
           }
         }
         // Now that some stages have finished, we can try creating new stages.
+        // [6] 现在一些stage已经结束了，我们可以创建新的阶段。
         result = createQueryStages(currentPhysicalPlan)
       }
 
       // Run the final plan when there's no more unfinished stages.
+      // 当没有未完成的阶段时运行 final plan
       currentPhysicalPlan = applyPhysicalRules(
         optimizeQueryStage(result.newPlan, isFinalStage = true),
         postStageCreationRules(supportsColumnar),
@@ -564,11 +571,17 @@ case class AdaptiveSparkPlanExec(
     * child query stages (if any) of the current node have all been
     * materialized. 3) A list of the new query stages that have been created.
     */
+  // createQueryStages会从下到上遍历并应用物理计划树的所有节点
+  // 根据节点的类型不同，采取不同处理
   private def createQueryStages(plan: SparkPlan): CreateStageResult =
     plan match {
+      // 对于Exchange类型的节点，exchange会被 QueryStageExec 节点替代。
+      // 否则，从下向上迭代，如果孩子节点都迭代完成，将基于broadcast转换为BroadcastQueryStageExec，shuffle作为ShuffleQueryStageExec，并将其依次封装为CreateStageResult。
       case e: Exchange =>
         // First have a quick check in the `stageCache` without having to traverse down the node.
+        // 如果开启了stageCache
         context.stageCache.get(e.canonicalized) match {
+          // 同时exchange节点是存在的stage，则直接重用stage作为QueryStage, 并封装返回CreateStageResult。
           case Some(existingStage) if conf.exchangeReuseEnabled =>
             val stage = reuseQueryStage(existingStage, e)
             val isMaterialized = stage.isMaterialized
@@ -577,12 +590,16 @@ case class AdaptiveSparkPlanExec(
               allChildStagesMaterialized = isMaterialized,
               newStages = if (isMaterialized) Seq.empty else Seq(stage)
             )
-
           case _ =>
+            // 否则，从下向上迭代
             val result = createQueryStages(e.child)
             val newPlan =
               e.withNewChildren(Seq(result.newPlan)).asInstanceOf[Exchange]
             // Create a query stage only when all the child query stages are ready.
+            // 如果孩子节点都迭代完成，在newQueryStage函数中，
+            // 将broadcast转换为 BroadcastQueryStageExec、
+            // shuffle转换为ShuffleQueryStageExec，
+            // 并将其依次封装为CreateStageResult。
             if (result.allChildStagesMaterialized) {
               var newStage =
                 newQueryStage(newPlan).asInstanceOf[ExchangeQueryStageExec]

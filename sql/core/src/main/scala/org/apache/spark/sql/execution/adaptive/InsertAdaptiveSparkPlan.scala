@@ -65,6 +65,8 @@ case class InsertAdaptiveSparkPlan(
       case c: DataWritingCommandExec
           if !c.cmd.isInstanceOf[V1WriteCommand] || !conf.plannedWriteEnabled =>
         c.copy(child = apply( c.child))
+      // 开启AQE需要满足以下至少其中一个：开启AQE强制应用的开关；query中包含子查询；
+      // query 包含Exchange算子或者是否需要添加Exchange算子，即存在shuffle or broadcast事件。
       case _ if shouldApplyAQE(plan, isSubquery) =>
         // [4] 验证是否支持AQE
         if (supportAdaptive(plan)) {
