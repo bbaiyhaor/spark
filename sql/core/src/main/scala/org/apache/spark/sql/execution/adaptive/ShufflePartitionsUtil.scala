@@ -382,10 +382,14 @@ object ShufflePartitionsUtil extends Logging {
       targetSize: Long,
       smallPartitionFactor: Double = SMALL_PARTITION_FACTOR)
   : Option[Seq[PartialReducerPartitionSpec]] = {
+    // 获取每个分区的字节数
     val mapPartitionSizes = getMapSizesForReduceId(shuffleId, reducerId)
     if (mapPartitionSizes.exists(_ < 0)) return None
+    // 尝试进行分区合并：比如[0,1,2,3,4,5]->[0,3,5]，012合并为一个分片，34合并为一个分片
     val mapStartIndices = splitSizeListByTargetSize(
       mapPartitionSizes, targetSize, smallPartitionFactor)
+    // 如果合并后的分区数大于1个，则转换为合并后的partitions
+    // 分别对应了mapstatus中的起始和结束索引
     if (mapStartIndices.length > 1) {
       Some(mapStartIndices.indices.map { i =>
         val startMapIndex = mapStartIndices(i)
@@ -402,7 +406,7 @@ object ShufflePartitionsUtil extends Logging {
         }
         PartialReducerPartitionSpec(reducerId, startMapIndex, endMapIndex, dataSize)
       })
-    } else {
+    } else {// 如果合并后只有一个索引，则不使用
       None
     }
   }

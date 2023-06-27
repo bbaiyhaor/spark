@@ -298,18 +298,20 @@ case class AdaptiveSparkPlanExec(
       // during `initialPlan`
       var currentLogicalPlan = inputPlan.logicalLink.get
       // 在getFinalPhysicalPlan会将currentPhysicalPlan传给createQueryStages方法
-      // 这个方法的输出类型是CreateStageResult，这个方法会从下到上递归的遍历物理计划树
+      // 这个方法的输出类型是 CreateStageResult ，这个方法会从下到上递归的遍历物理计划树
       // 生成新的Query stage,这个 createQueryStages 方法在每次计划发生变化时都会被调用
       var result = createQueryStages(currentPhysicalPlan)
       val events = new LinkedBlockingQueue[StageMaterializationEvent]()
       val errors = new mutable.ArrayBuffer[Throwable]()
       var stagesToReplace = Seq.empty[QueryStageExec]
       // [1] 是否所有的孩子stage都已经被物化
+      // 接下来有哪些Stage要执行，参考 createQueryStages(plan: SparkPlan) 方法
       while (!result.allChildStagesMaterialized) {
         currentPhysicalPlan = result.newPlan
         if (result.newStages.nonEmpty) {
           // [2] 通知监听器物理计划已经变更
           stagesToReplace = result.newStages ++ stagesToReplace
+          // onUpdatePlan 通过listener更新UI
           executionId.foreach(onUpdatePlan(_, result.newStages.map(_.plan)))
 
           // SPARK-33933: we should submit tasks of broadcast stages first, to avoid waiting
@@ -330,6 +332,10 @@ case class AdaptiveSparkPlanExec(
           // [4] 等待下一个完成的stage，这表明新的统计数据可用，并且可能可以创建新的阶段。
           reorderedNewStages.foreach { stage =>
             try {
+              // materialize() 方法对Stage的作为一个单独的Job提交执行，并返回 SimpleFutureAction 来接收执行结果
+              // QueryStageExec: materialize() -> doMaterialize() ->
+              // ShuffleExchangeExec: -> mapOutputStatisticsFuture -> ShuffleExchangeExec
+              // SparkContext: -> submitMapStage(shuffleDependency)
               stage
                 .materialize()
                 .onComplete { res =>
@@ -351,6 +357,7 @@ case class AdaptiveSparkPlanExec(
         // Wait on the next completed stage, which indicates new stats are available and probably
         // new stages can be created. There might be other stages that finish at around the same
         // time, so we process those stages too in order to reduce re-planning.
+        // 等待，直到有Stage执行完毕
         val nextMsg = events.take()
         val rem = new util.ArrayList[StageMaterializationEvent]()
         events.drainTo(rem)
@@ -378,6 +385,7 @@ case class AdaptiveSparkPlanExec(
         // plans are updated, we can clear the query stage list because at this point the two plans
         // are semantically and physically in sync again.
         // [5] 尝试重新优化和重新规划。如果新计划的成本小于或者等于当前的计划就采用新计划
+        // 对前面的Stage替换为 LogicalQueryStage 节点
         val logicalPlan = replaceWithQueryStagesInLogicalPlan(
           currentLogicalPlan,
           stagesToReplace
@@ -410,7 +418,7 @@ case class AdaptiveSparkPlanExec(
       }
 
       // Run the final plan when there's no more unfinished stages.
-      // 当没有未完成的阶段时运行 final plan
+      // 所有前置stage全部执行完毕，根据stats信息优化物理执行计划，确定最终的 physical plan
       currentPhysicalPlan = applyPhysicalRules(
         optimizeQueryStage(result.newPlan, isFinalStage = true),
         postStageCreationRules(supportsColumnar),

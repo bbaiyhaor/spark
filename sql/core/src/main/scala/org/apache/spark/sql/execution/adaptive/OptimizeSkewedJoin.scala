@@ -81,6 +81,7 @@ case class OptimizeSkewedJoin(ensureRequirements: EnsureRequirements)
     * non-skewed partition, or the advisory partition size if avg size is
     * smaller than it.
     */
+  // 调用targetSize方法，sizes是每个partition的bytes大小
   private def targetSize(sizes: Array[Long], skewThreshold: Long): Long = {
     val advisorySize = conf.getConf(SQLConf.ADVISORY_PARTITION_SIZE_IN_BYTES)
     val nonSkewSizes = sizes.filter(_ <= skewThreshold)
@@ -91,6 +92,7 @@ case class OptimizeSkewedJoin(ensureRequirements: EnsureRequirements)
     }
   }
 
+  // canSplitLeft表示left是否满足[Inner,Cross,LeftSemi,LeftAnti,LeftOuter]中的一种Join类型
   private def canSplitLeftSide(joinType: JoinType) = {
     joinType == Inner || joinType == Cross || joinType == LeftSemi ||
     joinType == LeftAnti || joinType == LeftOuter
@@ -165,6 +167,8 @@ case class OptimizeSkewedJoin(ensureRequirements: EnsureRequirements)
         )
 
       val leftParts = if (isLeftSkew) {
+        // partition的切分操作，进行split分区操作
+        // 创建成功就使用新创建的，失败就使用原始的
         val skewSpecs = ShufflePartitionsUtil.createSkewPartitionSpecs(
           left.mapStats.get.shuffleId,
           partitionIndex,
