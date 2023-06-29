@@ -330,6 +330,7 @@ object ShufflePartitionsUtil extends Logging {
       // When we are going to start a new partition, it's possible that the current partition or
       // the previous partition is very small and it's better to merge the current partition into
       // the previous partition.
+      // 如果上一个partition是0开始的，此时lastPartitionSize==-1，不merge
       val shouldMergePartitions = lastPartitionSize > -1 &&
         ((currentPartitionSize + lastPartitionSize) < targetSize * MERGED_PARTITION_FACTOR ||
         (currentPartitionSize < targetSize * smallPartitionFactor ||
@@ -347,6 +348,7 @@ object ShufflePartitionsUtil extends Logging {
     while (i < sizes.length) {
       // If including the next size in the current partition exceeds the target size, package the
       // current partition and start a new partition.
+      // 进入这条if表示考虑当前partition是否要作为新的起点
       if (i > 0 && currentPartitionSize + sizes(i) > targetSize) {
         tryMergePartitions()
         partitionStartIndices += i

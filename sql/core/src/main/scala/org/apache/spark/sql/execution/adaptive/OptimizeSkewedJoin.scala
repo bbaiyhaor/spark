@@ -152,6 +152,7 @@ case class OptimizeSkewedJoin(ensureRequirements: EnsureRequirements)
     val rightSidePartitions = mutable.ArrayBuffer.empty[ShufflePartitionSpec]
     var numSkewedLeft = 0
     var numSkewedRight = 0
+    // 遍历所有partition，进行合并或者切分
     for (partitionIndex <- 0 until numPartitions) {
       val leftSize = leftSizes(partitionIndex)
       val isLeftSkew = canSplitLeft && leftSize > leftSkewThreshold
@@ -205,7 +206,17 @@ case class OptimizeSkewedJoin(ensureRequirements: EnsureRequirements)
       } else {
         rightNoSkewPartitionSpec
       }
-
+      // 这里做了一个笛卡尔积操作：
+      // leftParts和rightParts分别存放了被split处理过的分区
+      // case1 left.notskew+right.notskew
+      // 则结果各自只有一个SidePartition
+      // case2 left.skew+right.notskew
+      // rightSidePartition会将相同的part进行复制(left.skew切分的part数量)
+      // case3 left.notSkew+right.skew
+      // leftSidePartition会将相同的part进行复制(right.skew切分的part数量)
+      // case4 left.skew+right.skew
+      // 笛卡尔积，若left有3个part，right有2个part，那么left每个part会复制2份
+      // right每个part复制3份
       for {
         leftSidePartition <- leftParts
         rightSidePartition <- rightParts
