@@ -222,12 +222,20 @@ private[sql] object Dataset {
   *
   * @since 1.6.0
   */
+// DataSet是spark目前主流的数据结构，不同于RDD，DataSet更像是一张带有列名的二维表
+// 比RDD也具有了更多的操作算子，你可以像操作数据库里的一张表去操作DataSet
+// 如select，where，max，sum，group等等的操作
 @Stable
 class Dataset[T] private[sql] (
+    // queryExecution：查询执行，这里跟RDD不同，RDD创建时会记录依赖的RDD以及从父RDD到自身的函数之类
+    // 但是DataSet里主要就是一个QueryExecution，它描述的就是通过什么样的关系，或者说执行步骤能够得到这个DataSet
     @DeveloperApi @Unstable @transient val queryExecution: QueryExecution,
+    // encoder：编码器，DataSet是一个强类型结构，就是在编译期间就必须知道DataSet是什么数据类型
+    // encoder就是告诉spark这个DataSet是什么数据类型，什么schema，spark会按照这个类型去序列化RDD的数据
     @DeveloperApi @Unstable @transient val encoder: Encoder[T]
 ) extends Serializable {
 
+  // sparkSession：spark sql中核心的结构，类似于sparkContext
   @transient lazy val sparkSession: SparkSession = {
     if (queryExecution == null || queryExecution.sparkSession == null) {
       throw QueryExecutionErrors
@@ -260,6 +268,7 @@ class Dataset[T] private[sql] (
     this(sqlContext.sparkSession, logicalPlan, encoder)
   }
 
+  // logicalPlan：逻辑计划，就是得到当前DataSet的查询逻辑计划，它在queryExecution中
   @transient private[sql] val logicalPlan: LogicalPlan = {
     val plan = queryExecution.commandExecuted
     if (sparkSession.conf.get(SQLConf.FAIL_AMBIGUOUS_SELF_JOIN_ENABLED)) {
@@ -4292,6 +4301,7 @@ class Dataset[T] private[sql] (
   def unpersist(): this.type = unpersist(blocking = false)
 
   // Represents the `QueryExecution` used to produce the content of the Dataset as an `RDD`.
+  // rddQueryExecution: DataSet可以转换成RDD，rddQueryExecution代表了生成对应RDD的查询执行
   @transient private lazy val rddQueryExecution: QueryExecution = {
     val deserialized = CatalystSerde.deserialize[T](logicalPlan)
     sparkSession.sessionState.executePlan(deserialized)
@@ -4302,6 +4312,7 @@ class Dataset[T] private[sql] (
     * @group basic
     * @since 1.6.0
     */
+  // rdd：DataSet转换成的RDD，可以对这个RDD进行RDD相关的操作，比如一些复杂的函数表达式
   lazy val rdd: RDD[T] = {
     val objectType = exprEnc.deserializer.dataType
     rddQueryExecution.toRdd.mapPartitions { rows =>
@@ -4822,6 +4833,7 @@ class Dataset[T] private[sql] (
 
   /** Collect all elements from a spark plan.
     */
+  // show -> showString -> getRows -> take -> head -> collectFromPlan
   private def collectFromPlan(plan: SparkPlan): Array[T] = {
     val fromRow = resolvedEnc.createDeserializer()
     plan.executeCollect().map(fromRow)

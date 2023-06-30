@@ -72,6 +72,11 @@ object SparkPlan {
   * The naming convention is that physical operators end with "Exec" suffix,
   * e.g. [[ProjectExec]].
   */
+// SparkPlan是物理执行计划，对于action操作最终也将会调用SparkPlan.doExecute()方法
+// 对生成的RDD做最终的数据处理。一个查询会产生多个物理执行计划，比如map，filter操作等
+// 每个算子都会对应一个SparkPlan，都会调用doExecute()方法来转换成RDD进行数据处理
+// SparkPlan通常会持有一个子SparkPlan作为该计划所依赖的计划，和RDD类似，不过父子关系
+// 和RDD反着了，这样成了一个RDD的数据处理链
 abstract class SparkPlan
     extends QueryPlan[SparkPlan]
     with Logging
@@ -207,6 +212,9 @@ abstract class SparkPlan
     *
     * Concrete implementations of SparkPlan should override `doExecute`.
     */
+  // plan.executeCollect()最终会调用plan.execute() ==> plan.doExecute()
+  // 返回该计划生成的对应RDD，然后对这个RDD进行数据计算
+  // doExecute()会根据具体的子类重写方法
   final def execute(): RDD[InternalRow] = executeQuery {
     if (isCanonicalizedPlan) {
       throw SparkException.internalError(

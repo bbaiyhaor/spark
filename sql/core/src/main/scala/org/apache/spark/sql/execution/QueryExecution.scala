@@ -73,6 +73,7 @@ import org.apache.spark.util.Utils
   * names for the sake of changing them, because a lot of developers use the
   * feature for debugging.
   */
+// QueryExecution极其重要，它包含了一个查询/job需要执行的所有计划
 class QueryExecution(
     val sparkSession: SparkSession,
     val logical: LogicalPlan,
@@ -95,13 +96,16 @@ class QueryExecution(
       UnsupportedOperationChecker.checkForBatch(analyzed)
     }
   }
+
   // executeAndCheck先对一个逻辑计划进行检查再进行分析，
   // 返回一个已完成分析的逻辑计划：analyzed。
+  // 经过分析器解析后的执行计划
   lazy val analyzed: LogicalPlan = executePhase(QueryPlanningTracker.ANALYSIS) {
     // We can't clone `logical` here, which will reset the `_analyzed` flag.
     sparkSession.sessionState.analyzer.executeAndCheck(logical, tracker)
   }
 
+  // 经过命令执行后的逻辑计划
   lazy val commandExecuted: LogicalPlan = mode match {
     case CommandExecutionMode.NON_ROOT =>
       analyzed.mapChildren(eagerlyExecuteCommands)
@@ -118,6 +122,7 @@ class QueryExecution(
     case _                             => "command"
   }
 
+  // 执行命令语句，替换成命令执行后的逻辑计划CommandResult
   private def eagerlyExecuteCommands(p: LogicalPlan) = p transformDown {
     case c: Command =>
       val qe =
@@ -166,9 +171,11 @@ class QueryExecution(
     sparkSession.sharedState.cacheManager.useCachedData(normalized.clone())
   }
 
+  // 因为commandExecuted是懒加载变量，该方法保证命令已经执行替换过
   def assertCommandExecuted(): Unit = commandExecuted
 
   // optimizer 对逻辑计划进行优化，得到优化后的逻辑计划 optimizedPlan
+  // 经过优化器优化过的逻辑计划
   lazy val optimizedPlan: LogicalPlan = {
     // We need to materialize the commandExecuted here because optimizedPlan is also tracked under
     // the optimizing phase
@@ -191,6 +198,7 @@ class QueryExecution(
   private def assertOptimized(): Unit = optimizedPlan
 
   // 把 optimizedPlan 转换成物理计划 sparkPlan
+  // 经逻辑计算翻译过来的物理执行计划
   lazy val sparkPlan: SparkPlan = {
     // We need to materialize the optimizedPlan here because sparkPlan is also tracked under
     // the planning phase
@@ -206,9 +214,10 @@ class QueryExecution(
     }
   }
 
-  // prepareForExecution 对物理计划进行优化，得到新的物理计划 executedPlan
   // executedPlan should not be used to initialize any SparkPlan. It should be
   // only used for execution.
+  // prepareForExecution 对物理计划进行优化，得到新的物理计划 executedPlan
+  // spark真正执行的物理执行计划
   lazy val executedPlan: SparkPlan = {
     // We need to materialize the optimizedPlan here, before tracking the planning phase, to ensure
     // that the optimization time is not counted as part of the planning phase.

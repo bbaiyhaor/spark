@@ -29,6 +29,8 @@ import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors
 import org.apache.spark.sql.types.StructType
 
 
+// LogicalPlan描述的是逻辑关系，DataSet之间/逻辑计划之间的关系
+// 如filter、map、join、agg这些算子都有对应的逻辑计划
 abstract class LogicalPlan
   extends QueryPlan[LogicalPlan]
   with AnalysisHelper
