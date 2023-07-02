@@ -56,6 +56,12 @@ abstract class QueryStageExec extends LeafExecNode {
    * broadcasting data, etc. The caller side can use the returned [[Future]] to wait until this
    * stage is ready.
    */
+  // QueryStage的创建并非是一蹴而就的，并不是一开始就把完全的stage给创建出来
+  // 这里面有个stage物化的概念，物化的意思就是该stage被实际执行了，它的数据已经被计算出来了
+  // 中间结果也被保存到了磁盘上。物化的最终过程就是提交这个stage，进行任务执行
+  // 只有前一个stage被物化后，后一个stage才会被创建，然后接着被物化，直到最终的stage
+  // 这也是AQE的特性，在前一个stage执行完，AQE会分析它的执行结果，动态的去调整后面的物理计划
+  // 生成新的stage，也就是做一个运行时的优化
   final def materialize(): Future[Any] = {
     logDebug(s"Materialize query stage ${this.getClass.getSimpleName}: $id")
     doMaterialize()

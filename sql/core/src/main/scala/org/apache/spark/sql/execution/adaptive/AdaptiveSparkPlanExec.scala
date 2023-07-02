@@ -98,6 +98,8 @@ case class AdaptiveSparkPlanExec(
   @transient private val planChangeLogger = new PlanChangeLogger[SparkPlan]()
 
   // The logical plan optimizer for re-optimizing the current logical plan.
+  // optimizer：对运行时物理计划进行重新优化的优化器，比如DynamicJoinSelection规则
+  // 进行动态join调整，EliminateLimits规则剔除掉不必要的GlobalLimit计划
   @transient private val optimizer = new AQEOptimizer(
     conf,
     session.sessionState.adaptiveRulesHolder.runtimeOptimizerRules
@@ -116,6 +118,7 @@ case class AdaptiveSparkPlanExec(
       AQEUtils.getRequiredDistribution(inputPlan)
     }
 
+  // costEvaluator：物理计划开销计算器，如果经过重新优化的物理计划比原计划开销小，那么将会替换掉原物理计划，默认是SimpleCostEvaluator
   @transient private val costEvaluator =
     conf.getConf(SQLConf.ADAPTIVE_CUSTOM_COST_EVALUATOR_CLASS) match {
       case Some(className) =>
@@ -129,6 +132,8 @@ case class AdaptiveSparkPlanExec(
   // A list of physical plan rules to be applied before creation of query stages. The physical
   // plan should reach a final status of query stages (i.e., no more addition or removal of
   // Exchange nodes) after running these rules.
+  // queryStagePreparationRules：对AdaptiveSparkPlanExec持有的原物理计划做初始化的应用规则
+  // 这里面核心的便是EnsureRequirements，它的作用就是在原物理计划链上插入shuffle物理计划
   @transient private val queryStagePreparationRules: Seq[Rule[SparkPlan]] = {
     // For cases like `df.repartition(a, b).select(c)`, there is no distribution requirement for
     // the final plan, but we do need to respect the user-specified repartition. Here we ask
@@ -154,6 +159,8 @@ case class AdaptiveSparkPlanExec(
 
   // A list of physical optimizer rules to be applied to a new stage before its execution. These
   // optimizations should be stage-independent.
+  // queryStageOptimizerRules：在创建QueryStage前应用的一些规则，比如应用CoalesceShufflePartitions规则进行shuffle后的分区缩减
+  // QueryStage的概念类似于rdd中的stage，以shuffle进行划分
   @transient private val queryStageOptimizerRules: Seq[Rule[SparkPlan]] = Seq(
     PlanAdaptiveDynamicPruningFilters(this),
     ReuseAdaptiveSubquery(context.subqueryCache),
@@ -171,6 +178,7 @@ case class AdaptiveSparkPlanExec(
 
   // A list of physical optimizer rules to be applied right after a new stage is created. The input
   // plan to these rules has exchange as its root node.
+  // postStageCreationRules：在创建完QueryStage后应用的一些规则，比如应用CollapseCodegenStages规则进行全阶段代码生成，插入一个WholeStageCodegenExec计划
   private def postStageCreationRules(outputsColumnar: Boolean) = Seq(
     ApplyColumnarRulesAndInsertTransitions(
       context.session.sessionState.columnarRules,
@@ -214,6 +222,7 @@ case class AdaptiveSparkPlanExec(
     optimized
   }
 
+  // initialPlan：初始化后的物理计划，也就是应用完queryStagePreparationRules规则后的物理计划，这时计划链中已经添加到shuffle物理计划
   @transient val initialPlan = context.session.withActive {
     applyPhysicalRules(
       inputPlan,
@@ -419,6 +428,10 @@ case class AdaptiveSparkPlanExec(
 
       // Run the final plan when there's no more unfinished stages.
       // 所有前置stage全部执行完毕，根据stats信息优化物理执行计划，确定最终的 physical plan
+      // 等到前面的QueryStage（RDD层面来说就是ShuffleMapStage）都物化完了
+      // 这时才会确定下来最终的物理计划，这时也就剩下最后一个stage了，也就是ResultStage
+      // ResultStage无需再进行专门创建，因为从最后一个物理计划到上一个ShuffleQueryStageExec这个过程便是ResultStage了
+      // 只需要去应用一些规则进行优化即可，同样也会应用之前创建stage时应用的规则，比如CoalesceShufflePartitions和CollapseCodegenStages
       currentPhysicalPlan = applyPhysicalRules(
         optimizeQueryStage(result.newPlan, isFinalStage = true),
         postStageCreationRules(supportsColumnar),
@@ -470,6 +483,8 @@ case class AdaptiveSparkPlanExec(
 
   private def withFinalPlanUpdate[T](fun: SparkPlan => T): T = {
     val plan = getFinalPhysicalPlan()
+    // 最后开始执行这个物理计划，不过因为这个物理计划前面的stage都被执行过了
+    // 在实际执行过程中前面的stage都会被跳过，实际直接执行最后一个stage就行了
     val result = fun(plan)
     finalPlanUpdate
     result
@@ -585,6 +600,7 @@ case class AdaptiveSparkPlanExec(
     plan match {
       // 对于Exchange类型的节点，exchange会被 QueryStageExec 节点替代。
       // 否则，从下向上迭代，如果孩子节点都迭代完成，将基于broadcast转换为BroadcastQueryStageExec，shuffle作为ShuffleQueryStageExec，并将其依次封装为CreateStageResult。
+      // 在遇到Exchange节点时，判断是否应该创建QueryStage
       case e: Exchange =>
         // First have a quick check in the `stageCache` without having to traverse down the node.
         // 如果开启了stageCache
@@ -608,7 +624,9 @@ case class AdaptiveSparkPlanExec(
             // 将broadcast转换为 BroadcastQueryStageExec、
             // shuffle转换为ShuffleQueryStageExec，
             // 并将其依次封装为CreateStageResult。
+            // 需要保证子stage已被物化，才会进行新stage的创建
             if (result.allChildStagesMaterialized) {
+              // 创建新的QueryStage，这会插入一个QueryStageExec计划
               var newStage =
                 newQueryStage(newPlan).asInstanceOf[ExchangeQueryStageExec]
               if (conf.exchangeReuseEnabled) {
@@ -630,6 +648,7 @@ case class AdaptiveSparkPlanExec(
                 newStages = if (isMaterialized) Seq.empty else Seq(newStage)
               )
             } else {
+              // 若子stage未被物化，便不会进行创建stage，而是返回下层的stage
               CreateStageResult(
                 newPlan = newPlan,
                 allChildStagesMaterialized = false,
@@ -648,6 +667,7 @@ case class AdaptiveSparkPlanExec(
           newStages = Seq(newStage)
         )
 
+      // 遇到QueryStageExec时，说明这是之前已经创建过的stage节点，就不需再向下递归了，从此处返回
       case q: QueryStageExec =>
         CreateStageResult(
           newPlan = q,
@@ -655,6 +675,7 @@ case class AdaptiveSparkPlanExec(
           newStages = Seq.empty
         )
 
+      // 如果是常规节点，递归向下进行遍历，直到叶子节点，返回CreateStageResult
       case _ =>
         if (plan.children.isEmpty) {
           CreateStageResult(
@@ -673,12 +694,20 @@ case class AdaptiveSparkPlanExec(
         }
     }
 
+  // 在创建QueryStageExec计划的同时，也会应用一些规则对整个stage进行优化
+  // 比如在创建stage前应用CoalesceShufflePartitions规则进行shuffle后的分区缩减
+  // 这会在上一个shuffle/ShuffleQueryStageExec计划之后、这个stage的起点处增加
+  // 一个AQEShuffleReadExec计划；在创建stage后应用CollapseCodegenStages规则
+  // 进行全阶段代码生成，插入一个WholeStageCodegenExec计划。QueryStageExec属于
+  // 整个物理计划的一部分，那么整个物理计划也随之改变了
   private def newQueryStage(plan: SparkPlan): QueryStageExec = {
     val queryStage = plan match {
       case e: Exchange =>
+        // 应用queryStageOptimizerRules进行物理计划优化，比如缩减shuffle分区
         val optimized = e.withNewChildren(
           Seq(optimizeQueryStage(e.child, isFinalStage = false))
         )
+        // 应用postStageCreationRules进行优化，比如全阶段代码生成
         val newPlan = applyPhysicalRules(
           optimized,
           postStageCreationRules(outputsColumnar = plan.supportsColumnar),
@@ -690,6 +719,7 @@ case class AdaptiveSparkPlanExec(
               "Custom columnar rules cannot transform shuffle node to something else."
             )
           }
+          // 在Exchange之上插入一个ShuffleQueryStageExec计划，意味着QueryStage的创建
           ShuffleQueryStageExec(currentStageId, newPlan, e.canonicalized)
         } else {
           assert(e.isInstanceOf[BroadcastExchangeLike])
