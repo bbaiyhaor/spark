@@ -1125,6 +1125,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
     }
   }
 
+  // 逻辑计划和物理计划的基本转换在 BasicOperators 中
   object BasicOperators extends Strategy {
     def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
       case d: DataWritingCommand =>

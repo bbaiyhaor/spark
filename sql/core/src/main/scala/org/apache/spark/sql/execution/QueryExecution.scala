@@ -248,6 +248,8 @@ class QueryExecution(
     CollectMetricsExec.collect(executedPlan)
 
   protected def preparations: Seq[Rule[SparkPlan]] = {
+    // 此处的 preparations 是伴生对象的 preparations
+    // 如果 InsertAdaptiveSparkPlan 生效了，就不会执行伴生对象里面的 rules
     QueryExecution.preparations(
       sparkSession,
       Option(
@@ -532,6 +534,8 @@ object QueryExecution {
   ): Seq[Rule[SparkPlan]] = {
     // `AdaptiveSparkPlanExec` is a leaf node. If inserted, all the following rules will be no-op
     // as the original plan is hidden behind `AdaptiveSparkPlanExec`.
+    // 如果被运用了InsertAdaptiveSparkPlan规则，因为AdaptiveSparkPlanExec属于叶子节点
+    // 那么以下这些规则将不会起作用
     adaptiveExecutionRule.toSeq ++
       Seq(
         CoalesceBucketsInJoin,
@@ -590,6 +594,7 @@ object QueryExecution {
   ): SparkPlan = {
     // TODO: We use next(), i.e. take the first plan returned by the planner, here for now,
     //       but we will implement to choose the best plan.
+    // 这里仅仅是选择了创建的第一个物理执行计划，以后可能会在创建的众多物理计划中选取最优的一个
     planner.plan(ReturnAnswer(plan)).next()
   }
 

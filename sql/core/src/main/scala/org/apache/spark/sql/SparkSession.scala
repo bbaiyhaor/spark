@@ -482,6 +482,8 @@ class SparkSession private (
     *
     * @since 2.0.0
     */
+  // 创建DataSet，逻辑计划为LogicalRelation，baseRelation描述的数据集的关系
+  // 包括文件路径，格式，schema等，常见的比如HadoopFsRelation
   def baseRelationToDataFrame(baseRelation: BaseRelation): DataFrame = {
     Dataset.ofRows(self, LogicalRelation(baseRelation))
   }
