@@ -65,6 +65,8 @@ case class EnsureRequirements(
         child
       case (child, BroadcastDistribution(mode)) =>
         BroadcastExchangeExec(mode, child)
+      // 当子节点和数据分布和当前节点的数据分布类型不一致时
+      // 说明需要进行数据shuffle，就添加一个ShuffleExchangeExec
       case (child, distribution) =>
         val numPartitions = distribution.requiredNumPartitions
           .getOrElse(conf.numShufflePartitions)
@@ -578,6 +580,7 @@ case class EnsureRequirements(
   }
 
   def apply(plan: SparkPlan): SparkPlan = {
+    // transformUp()方法是一个递归方法，从下至上后续遍历节点，对节点应用函数，然后进行子节点替换
     val newPlan = plan.transformUp {
       case operator @ ShuffleExchangeExec(upper: HashPartitioning, child, shuffleOrigin, _)
           if optimizeOutRepartition &&
@@ -598,6 +601,8 @@ case class EnsureRequirements(
 
       case operator: SparkPlan =>
         val reordered = reorderJoinPredicates(operator)
+        // ShuffleExchangeExec在这里进行，添加ShuffleExchangeExec然后将
+        // 这个ShuffleExchangeExec作为自己的子节点
         val newChildren = ensureDistributionAndOrdering(
           Some(reordered),
           reordered.children,

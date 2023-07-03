@@ -159,7 +159,7 @@ case class AdaptiveSparkPlanExec(
 
   // A list of physical optimizer rules to be applied to a new stage before its execution. These
   // optimizations should be stage-independent.
-  // queryStageOptimizerRules：在创建QueryStage前应用的一些规则，比如应用CoalesceShufflePartitions规则进行shuffle后的分区缩减
+  // queryStageOptimizerRules：在执行QueryStage前应用的一些规则，比如应用CoalesceShufflePartitions规则进行shuffle后的分区缩减
   // QueryStage的概念类似于rdd中的stage，以shuffle进行划分
   @transient private val queryStageOptimizerRules: Seq[Rule[SparkPlan]] = Seq(
     PlanAdaptiveDynamicPruningFilters(this),
@@ -307,15 +307,18 @@ case class AdaptiveSparkPlanExec(
       // during `initialPlan`
       var currentLogicalPlan = inputPlan.logicalLink.get
       // 在getFinalPhysicalPlan会将currentPhysicalPlan传给createQueryStages方法
-      // 这个方法的输出类型是 CreateStageResult ，这个方法会从下到上递归的遍历物理计划树
-      // 生成新的Query stage,这个 createQueryStages 方法在每次计划发生变化时都会被调用
+      // 这个方法的输出类型是 CreateStageResult，这个方法会从下到上递归的遍历物理计划树
+      // 生成新的Querystage，这个 createQueryStages 方法在每次计划发生变化时都会被调用
+      // 首次创建QueryStage，第一个需要shuffle的stage，并非是把全部的stage都创建出来
       var result = createQueryStages(currentPhysicalPlan)
       val events = new LinkedBlockingQueue[StageMaterializationEvent]()
       val errors = new mutable.ArrayBuffer[Throwable]()
       var stagesToReplace = Seq.empty[QueryStageExec]
       // [1] 是否所有的孩子stage都已经被物化
       // 接下来有哪些Stage要执行，参考 createQueryStages(plan: SparkPlan) 方法
+      // 在所有子stage物化前，逐步的创建stage，物化stage
       while (!result.allChildStagesMaterialized) {
+        // 替换物理计划为创建stage之后的物理计划，这会在原物理计划链上插入QueryStageExec计划等
         currentPhysicalPlan = result.newPlan
         if (result.newStages.nonEmpty) {
           // [2] 通知监听器物理计划已经变更
@@ -339,6 +342,7 @@ case class AdaptiveSparkPlanExec(
 
           // Start materialization of all new stages and fail fast if any stages failed eagerly
           // [4] 等待下一个完成的stage，这表明新的统计数据可用，并且可能可以创建新的阶段。
+          // 物化stage，也就是实际执行stage，以job的方式进行提交执行
           reorderedNewStages.foreach { stage =>
             try {
               // materialize() 方法对Stage的作为一个单独的Job提交执行，并返回 SimpleFutureAction 来接收执行结果
@@ -370,6 +374,8 @@ case class AdaptiveSparkPlanExec(
         val nextMsg = events.take()
         val rem = new util.ArrayList[StageMaterializationEvent]()
         events.drainTo(rem)
+        // 将stage的执行结果给这个 QueryStageExec ，这个结果是 MapOutputStatistics
+        // 统计的是map端对reduce端每个分区的shuffle数据大小
         (Seq(nextMsg) ++ rem.asScala).foreach {
           case StageSuccess(stage, res) =>
             stage.resultOption.set(Some(res))
@@ -801,7 +807,11 @@ case class AdaptiveSparkPlanExec(
   ): LogicalPlan = {
     var logicalPlan = plan
     stagesToReplace.foreach {
+      // 对于需要替换的每一个查询阶段（stage），如果这个阶段在当前的物理计划中存在，那么就进行替换操作。否则，忽略这个查询阶段。
       case stage if currentPhysicalPlan.exists(_.eq(stage)) =>
+        // 进行替换操作时，首先会从查询阶段中获取对应的逻辑节点（Logical Node）
+        // 这个逻辑节点可以是原始的逻辑计划，也可以是之前标记（Tag）过的临时逻辑计划
+        // 同时，它也会找到当前物理计划中对应的物理节点（Physical Node）
         val logicalNodeOpt =
           stage.getTagValue(TEMP_LOGICAL_PLAN_TAG).orElse(stage.logicalLink)
         assert(logicalNodeOpt.isDefined)
@@ -817,8 +827,13 @@ case class AdaptiveSparkPlanExec(
         // Set the temp link for those nodes that are wrapped inside a `LogicalQueryStage` node for
         // they will be shared and reused by different physical plans and their usual logical links
         // can be overwritten through re-planning processes.
+        // LogicalQueryStage 是 QueryStageExec的逻辑计划包装，包含QueryStageExec的物理计划片段
+        // QueryStageExec的所有祖先节点都链接到同一逻辑节点
         setTempTagRecursive(physicalNode.get, logicalNode)
         // Replace the corresponding logical node with LogicalQueryStage
+        // 创建一个LogicalQueryStage节点，这个节点将物理节点和逻辑节点关联起来
+        // 然后，将原始逻辑计划中对应的逻辑节点替换为这个LogicalQueryStage节点
+        // 这样，逻辑计划中就包含了查询阶段的信息，可以在后续的优化和执行过程中使用
         val newLogicalNode = LogicalQueryStage(logicalNode, physicalNode.get)
         val newLogicalPlan = logicalPlan.transformDown {
           case p if p.eq(logicalNode) => newLogicalNode
