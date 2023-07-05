@@ -40,3 +40,4 @@ select * from
    d_qoy, d_moy, s_store_id, sumsales, rk
  limit 100;
 """).explain(true)
+collect
