@@ -134,6 +134,7 @@ abstract class SparkPlan
   /** Set logical plan link recursively if unset.
     */
   def setLogicalLink(logicalPlan: LogicalPlan): Unit = {
+    // logicalLink 本质上就是用来记录逻辑计划到物理计划的转换的。
     setLogicalLink(logicalPlan, false)
   }
 
@@ -142,6 +143,7 @@ abstract class SparkPlan
       inherited: Boolean = false
   ): Unit = {
     // Stop at a descendant which is the root of a sub-tree transformed from another logical node.
+    // 在从另一个逻辑节点转换而来的子树的根上停止。
     if (inherited && getTagValue(SparkPlan.LOGICAL_PLAN_TAG).isDefined) {
       return
     }

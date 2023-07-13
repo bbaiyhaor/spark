@@ -116,6 +116,10 @@ object RemoveRedundantProjects extends Rule[SparkPlan] {
   // SPARK-36020: Currently a project can only be removed if (1) its logical link is empty or (2)
   // its logical link is the same as the child's logical link. This is to ensure the physical
   // plan node can correctly map to its logical plan node in AQE.
+  // SPARK-36020：目前，只有在以下情况下可以删除 ProjectExec 节点：
+  // (1) 它的逻辑链接为空，或者
+  // (2) 它的逻辑链接与其子节点的逻辑链接相同。
+  // 这是为了确保物理计划节点能正确映射到逻辑计划节点中。
   private def canRemove(project: ProjectExec, child: SparkPlan): Boolean = {
     project.logicalLink.isEmpty || project.logicalLink.exists(child.logicalLink.contains)
   }
