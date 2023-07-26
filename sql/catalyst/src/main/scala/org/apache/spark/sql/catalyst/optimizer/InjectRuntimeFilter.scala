@@ -73,9 +73,12 @@ object InjectRuntimeFilter extends Rule[LogicalPlan] with PredicateHelper with J
       filterCreationSideExp: Expression,
       filterCreationSidePlan: LogicalPlan): LogicalPlan = {
     // Skip if the filter creation side is too big
+    // [1] 如果creation side(小表侧)的sizeInBytes大于阈值（默认是10M），则不进行应用。
     if (filterCreationSidePlan.stats.sizeInBytes > conf.runtimeFilterCreationSideThreshold) {
       return filterApplicationSidePlan
     }
+    // [2] 将creation side(小表侧)的join keys进行hash后封装bloom过滤器的聚合函数，
+    // 并封装为agg表达式，过滤器的大小设置为表的行数。
     val rowCount = filterCreationSidePlan.stats.rowCount
     val bloomFilterAgg =
       if (rowCount.isDefined && rowCount.get.longValue > 0L) {
@@ -85,9 +88,12 @@ object InjectRuntimeFilter extends Rule[LogicalPlan] with PredicateHelper with J
       }
 
     val alias = Alias(bloomFilterAgg.toAggregateExpression(), "bloomFilter")()
+    // [3] 直接将creation side(小表侧)的逻辑计划应用bloomFilter，同时进行列剪裁和常量合并
     val aggregate =
       ConstantFolding(ColumnPruning(Aggregate(Nil, Seq(alias), filterCreationSidePlan)))
+    // [4] 将ApplicationSide（大表侧）的join keys进行hash, 并去BloomFilter查询匹配
     val bloomFilterSubquery = ScalarSubquery(aggregate, Nil)
+    // [5] 最终是封装为Filter算子，插入到应用侧（即大表侧）
     val filter = BloomFilterMightContain(bloomFilterSubquery,
       new XxHash64(Seq(filterApplicationSideExp)))
     Filter(filter, filterApplicationSidePlan)
@@ -310,12 +316,15 @@ object InjectRuntimeFilter extends Rule[LogicalPlan] with PredicateHelper with J
 
   private def tryInjectRuntimeFilter(plan: LogicalPlan): LogicalPlan = {
     var filterCounter = 0
+    // [1] 这里为了避免driver端的oom, 约定一条sql最多只能做10个bloom过滤器
     val numFilterThreshold = conf.getConf(SQLConf.RUNTIME_FILTER_NUMBER_THRESHOLD)
     plan transformUp {
+      // 可以看到runtimeFilter只处理相等key的情况
       case join @ ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, _, _, left, right, hint) =>
         var newLeft = left
         var newRight = right
         (leftKeys, rightKeys).zipped.foreach((l, r) => {
+          // [2] 校验是否满足以下情况
           // Check if:
           // 1. There is already a DPP filter on the key
           // 2. There is already a runtime filter (Bloom filter or IN subquery) on the key
@@ -326,6 +335,7 @@ object InjectRuntimeFilter extends Rule[LogicalPlan] with PredicateHelper with J
             isSimpleExpression(l) && isSimpleExpression(r)) {
             val oldLeft = newLeft
             val oldRight = newRight
+            // [3] 进行应用injectFilter，如果左侧不行会尝试右侧
             if (canPruneLeft(joinType)) {
               extractBeneficialFilterCreatePlan(left, right, l, r, hint).foreach {
                 filterCreationSidePlan =>
