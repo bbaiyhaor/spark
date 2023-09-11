@@ -57,6 +57,10 @@ case class JoinEstimation(join: Join) extends Logging {
       None
 
     case ExtractEquiJoinKeys(joinType, leftKeys, rightKeys, _, _, left, right, _) =>
+      // 如果是equiJoin:
+      // 1、首先估算被 equi 条件选择的记录条数,即等于 innerJoin 选择的条数，命名为 numInnerJoinedRows；以及这些equi涉及的key在join之后的stats。
+      // 即在join中，存在类似 a.co1=b.co1, a.co2=b.co2 这些类似条件，现在是估计满足这些相等条件的记录条数。
+      // 使用的公式是： T(A J B) = T(A) * T(B) / max(V(A.ki), V(B.ki)).
       // 1. Compute join selectivity
       val joinKeyPairs = extractJoinKeysWithColStats(leftKeys, rightKeys)
       val leftSideUniqueness = left.distinctKeys.exists(_.subsetOf(ExpressionSet(leftKeys)))

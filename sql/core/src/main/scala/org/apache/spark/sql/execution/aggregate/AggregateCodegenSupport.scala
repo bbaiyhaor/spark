@@ -39,27 +39,32 @@ trait AggregateCodegenSupport
   /**
    * All the modes of aggregate expressions.
    */
+  // 保存了所有聚合表达式的不同模式（AggregateMode）。
   protected val modes: Seq[AggregateMode] = aggregateExpressions.map(_.mode).distinct
 
   /**
    * The variables are used as aggregation buffers and each aggregate function has one or more
    * ExprCode to initialize its buffer slots. Only used for aggregation without keys.
    */
+  // 用于存储聚合缓冲区的表达式。
   private var bufVars: Seq[Seq[ExprCode]] = _
 
   /**
    * Whether this operator needs to build hash table.
    */
+  // 表示该操作是否需要构建哈希表
   protected def needHashTable: Boolean
 
   /**
    * The generated code for `doProduce` call when aggregate has grouping keys.
    */
+  // 表示当有分组键时生成 doProduce 调用的代码。
   protected def doProduceWithKeys(ctx: CodegenContext): String
 
   /**
    * The generated code for `doConsume` call when aggregate has grouping keys.
    */
+  // 表示当有分组键时生成 doConsume 调用的代码。
   protected def doConsumeWithKeys(ctx: CodegenContext, input: Seq[ExprCode]): String
 
   protected override def doProduce(ctx: CodegenContext): String = {

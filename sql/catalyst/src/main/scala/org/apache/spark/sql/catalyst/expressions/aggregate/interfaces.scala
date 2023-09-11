@@ -397,11 +397,14 @@ abstract class DeclarativeAggregate
   /**
    * Expressions for initializing empty aggregation buffers.
    */
+  // initialValues：聚合缓冲区初始化表达式
   val initialValues: Seq[Expression]
 
   /**
    * Expressions for updating the mutable aggregation buffer based on an input row.
    */
+  // updateExpressions：聚合缓冲区更新表达式，Partial mode 下 AggregationIterator#processRow 会
+  // 调用该方法读取一行行的输入来更新聚合聚合缓冲区
   val updateExpressions: Seq[Expression]
 
   /**
@@ -410,12 +413,15 @@ abstract class DeclarativeAggregate
    * to the attributes corresponding to each of the buffers being merged (this magic is enabled
    * by the [[RichAttribute]] implicit class).
    */
+  // mergeExpressions：聚合缓冲区合并表达式，Final mode 下 AggregationIterator#processRow 会
+  // 调用该方法来对 Partial mode 下生成的相同 groupingKey 的一个个聚合缓冲区进行 merge
   val mergeExpressions: Seq[Expression]
 
   /**
    * An expression which returns the final value for this aggregate function. Its data type should
    * match this expression's [[dataType]].
    */
+  // evaluteExpression：最终结果生成表达式
   val evaluateExpression: Expression
 
   /** An expression-based aggregate's bufferSchema is derived from bufferAttributes. */

@@ -39,6 +39,16 @@ import org.apache.spark.util.Utils
  *
  * If star schema detection is enabled, reorder the star join plans based on heuristics.
  */
+// reorder join 操作并将所有 condition 下推到 join 操作中，以确保底层 join 至少有一个 condition
+// 如果所有 join 操作已经至少有一个 condition，则 join 操作的顺序不会改变
+// 如果启用了星型模式检测，则根据启发式算法重新排列星型连接计划
+// 给Join重新排序，就是对多个join操作进行重新排序。具体操作就是将一系列的带有join的子执行计划进行排序
+// 尽可能地将带有条件过滤的子执行计划下推到执行树的最底层，这样能尽可能地减少join的数据量
+// Optimizer中有两个跟join 顺序有关的rule，一个是reoderJoin，另外一个是CostBasedJoinRecorder
+// reorderjoin是没有cbo也会触发的rule，这个不会使用统计的信息，只是负责将filter下推，这样最底层的join至少会有一个filter。
+// 如果这些join已经每个都有一条condition，那么这些plan就不会变化，因此reorder join不涉及基于代价的优化。
+
+
 object ReorderJoin extends Rule[LogicalPlan] with PredicateHelper {
   /**
    * Join a list of plans together and push down the conditions into them.
