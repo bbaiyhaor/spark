@@ -45,49 +45,49 @@
       <groupId>org.spark-project.spark</groupId>
       <artifactId>unused</artifactId>
       <version>1.0.0</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-core_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+<!--      <scope>provided</scope>-->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-streaming_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-mllib_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-hive_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-graphx_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-streaming-kafka-0-10_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
-      <scope>provided</scope>
+      <!-- <scope>provided</scope> -->
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
@@ -146,7 +146,7 @@
           <groupId>org.apache.spark</groupId>
           <artifactId>spark-streaming-kinesis-asl_${scala.binary.version}</artifactId>
           <version>${project.version}</version>
-          <scope>provided</scope>
+          <!-- <scope>provided</scope> -->
         </dependency>
       </dependencies>
     </profile>
