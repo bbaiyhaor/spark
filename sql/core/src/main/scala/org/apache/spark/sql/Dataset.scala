@@ -1074,6 +1074,7 @@ class Dataset[T] private[sql] (
     * @since 2.0.0
     */
   def join(right: Dataset[_]): DataFrame = withPlan {
+    // 调用 join 算子的入口
     Join(logicalPlan, right.logicalPlan, joinType = Inner, None, JoinHint.NONE)
   }
 

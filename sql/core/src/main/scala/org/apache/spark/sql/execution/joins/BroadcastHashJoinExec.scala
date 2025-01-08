@@ -46,6 +46,7 @@ case class BroadcastHashJoinExec(
     left: SparkPlan,
     right: SparkPlan,
     isNullAwareAntiJoin: Boolean = false)
+  // 该class动态混入了 HashJoin和CodegenSupport
   extends HashJoin {
 
   if (isNullAwareAntiJoin) {

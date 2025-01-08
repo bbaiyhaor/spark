@@ -525,6 +525,7 @@ case class Union(
     copy(children = newChildren)
 }
 
+// JoinType 里面有各种不同的 join 算子
 case class Join(
     left: LogicalPlan,
     right: LogicalPlan,

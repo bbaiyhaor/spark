@@ -40,6 +40,9 @@ private[joins] case class HashedRelationInfo(
     keyIsUnique: Boolean,
     isEmpty: Boolean)
 
+// CodegenSupport则和Codegen有关，Codegen是Spark Runtime优化性能的关键技术，核心在于
+// 动态生成java代码、即时compile和加载，把解释执行转化为编译执行，Spark Codegen分为Expression级别
+// 和WholeStage级别，简而言之Codegen就是管理执行计划优化和生成的老大了，CodegenContext是它的核心类代码
 trait HashJoin extends JoinCodegenSupport {
   def buildSide: BuildSide
 
@@ -353,6 +356,8 @@ trait HashJoin extends JoinCodegenSupport {
   }
 
   override def doConsume(ctx: CodegenContext, input: Seq[ExprCode], row: ExprCode): String = {
+    // Produce()方法就是生成java code的执行计划，来看下doConsume()方法，可以看到里面有很多case，
+    // 有Inner、Outer、semi、Anti各种Join类型，其中ExistenceJoin是底层自己调用的Join类型
     joinType match {
       case _: InnerLike => codegenInner(ctx, input)
       case LeftOuter | RightOuter => codegenOuter(ctx, input)
